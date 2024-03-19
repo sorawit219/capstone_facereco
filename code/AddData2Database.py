@@ -4,14 +4,13 @@ from firebase_admin import db
 
 cred = credentials.Certificate("D:\VScode\capstone\serviceAccountKey.json")
 firebase_admin.initialize_app(cred,{
-    'databaseURL':"https://capstone-facerecogniton-default-rtdb.asia-southeast1.firebasedatabase.app/",
-    'storageBucket' : "capstone-facerecogniton.appspot.com"
+    'databaseURL':"https://capstone-facerecogniton-default-rtdb.asia-southeast1.firebasedatabase.app/"
 })
 
 ref = db.reference('User')
 
 data = {
-    "321568" :{
+    "321578" :{
         "first_name" : "Sorawit",
         "last_name" : " Kuhakasemsin",
         "nickname" : "Pat",
@@ -23,3 +22,4 @@ data = {
 
 for key,value in data.items():
     ref.child(key).set(value)
+

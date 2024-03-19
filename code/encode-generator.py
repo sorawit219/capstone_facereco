@@ -1,7 +1,7 @@
 import cv2
-import face_recognition
 import pickle
 import os
+import face_recognition
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
@@ -15,30 +15,30 @@ firebase_admin.initialize_app(cred,{
 
 
 
-
+#import img to the list
 foldermodepath = 'D:\VScode\capstone\img_'
 pathlis = os.listdir(foldermodepath)
 print(pathlis)
-imgLIst = []
+imgLIst_a = [] #array of img
 studentIds = []
+
 for path in pathlis:
-    imgLIst.append(cv2.imread(os.path.join(foldermodepath,path)))
-    print(path)
-    studentIds.append(os.path.splitext(path)[0])
-    fileName = os.path.join(foldermodepath,path)
+    
+    imgLIst_a.append(cv2.imread(os.path.join(foldermodepath,path)))
+    studentIds.append(os.path.splitext(path)[0])#print list numberpath
+    """
+    fileName = f'{foldermodepath,path}'
     bucket = storage.bucket()
     blob = bucket.blob(fileName)
     blob.upload_from_file(fileName)
+    """
 
-
-    #print(path)
-    #print(os.path.splitext(path)[0])
-print(studentIds)
+print(studentIds) #img name not png
 
 
 
 def findEncodeing(imgLIst):
-    encodeList=[]
+    encodeList= []
     for img in imgLIst:
         img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
         encode = face_recognition.face_encodings(img)[0]
@@ -47,7 +47,8 @@ def findEncodeing(imgLIst):
     return encodeList
 
 print("Encoding Started...")
-encodeListKnow = findEncodeing(imgLIst)
+encodeListKnow = findEncodeing(imgLIst_a)
+#print(encodeListKnow)
 encodeLIstKnowWithIds = [encodeListKnow,studentIds]
 print("Encode Complete")
 
