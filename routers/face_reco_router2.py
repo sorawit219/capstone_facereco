@@ -5,16 +5,25 @@ import cv2
 import face_recognition
 import numpy as np
 import asyncio
+from pymongo import MongoClient
+from pyzbar.pyzbar import decode
+
+
+client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
+db = client["face_ticket"]
+collection = db["enrollment"]
 router = APIRouter()
+
 
 # Global variable to track if the camera is running
 camera_running = False
 
-async def face_reco():
+async def face_reco(qrcode:bool):
     global camera_running
     cap = cv2.VideoCapture(0)
     cap.set(3, 1280)
     cap.set(4, 720)
+    encodeListKnowWithIds = None
     try:
         with open("D:/VScode/capstone/code/EncodeFile.p", 'rb') as file:
             encodeListKnowWithIds = pickle.load(file)
@@ -29,7 +38,11 @@ async def face_reco():
         if not success:
             print("Error: Unable to access webcam.")
             break
-        
+        if qrcode:
+            text = "None"
+            decoded_objs = decode(img)
+            for obj in decoded_objs:
+                text = obj.data.decode("utf-8")
 
         imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
         imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
@@ -44,6 +57,7 @@ async def face_reco():
 
             if matches[matchIndex]:
                 id = studentIds[matchIndex]
+                
                 print("Known Face Detected - ID:", id)
                 print(camera_running)
 
@@ -52,6 +66,13 @@ async def face_reco():
                 bbox = x1, y2-175, x2-x1, y2-y1
                 cv2.rectangle(img, bbox, (0, 255, 0), 2)
                 cv2.putText(img, str(id), (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                if qrcode:
+                    result = collection.find_one({"id":str(id),"text":text})
+                    if result is not None:
+                        print ("User {id} found you have enroll this meeting")
+                    else: 
+                        print ("User {id} not found in this meeting")
+
             if not camera_running:
                 break
 
@@ -73,7 +94,17 @@ async def read_root(background_tasks: BackgroundTasks):
     if not camera_running:
         camera_running = True
         background_tasks.add_task(face_reco)
-    return StreamingResponse(face_reco(), media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(face_reco(False), media_type="multipart/x-mixed-replace; boundary=frame")
+
+@router.get("/video+qr")
+async def read_root(background_tasks: BackgroundTasks):
+    global camera_running
+    if not camera_running:
+        camera_running = True
+        background_tasks.add_task(face_reco)
+    return StreamingResponse(face_reco(True), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
 
 @router.get("/stop")
 async def stop_video():
