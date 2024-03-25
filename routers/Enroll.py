@@ -117,9 +117,6 @@ async def create_enrollment(id:str,meet_id:str):
                 # Send email with QR code
                 to_email = result.get("email", "")
                 if to_email:
-                    from_email = "your_email@example.com"
-                    subject = "Enrollment Successful"
-                    body = "You have successfully enrolled in the meeting. Here is your QR code."
                     
                     em = EmailMessage()
                     em['From'] = from_email

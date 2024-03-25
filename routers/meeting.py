@@ -32,6 +32,7 @@ class Meeting(BaseModel):
     user_create: str
     description :str
     datetime:datetime
+    place_id :str
     enrolled_users: List[str] = []
     class Config:
         json_encoders = {
@@ -39,13 +40,14 @@ class Meeting(BaseModel):
         }
 
 
-@router.post("/")
-async def create_meeting(meeting: Meeting):
+@router.post("/{id}")
+async def create_meeting(meeting: Meeting,place:str):
     try:
         new_meeting = Meeting(
             name=meeting.name,
             user_create=meeting.user_create,
             description=meeting.description,
+            place_id=place,
             datetime=meeting.datetime
         )
         result = await collection_name.insert_one(new_meeting)

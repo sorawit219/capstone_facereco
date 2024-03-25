@@ -70,11 +70,11 @@ async def getObjID_by_id(id:str):
 
 @router.post("/")
 async def create_user(user:User):
-    x = rand_num()
+    x = str(rand_num())
     #check the same id
     while collection_name.find_one({"id": str(x)}):
-        x = rand_num()
-    user_with_picture = User(id=x,username=user.name, nickname=user.nickname,phone_number=user.phone_number,lineID=user.lineID,email=user.email)
+        x = str(rand_num())
+    user_with_picture = User(id=x,name=user.name, nickname=user.nickname,phone_number=user.phone_number,lineID=user.lineID,email=user.email)
     result = collection_name.insert_one(user_with_picture.dict())
     if result.acknowledged:
         return {"message": "User created successfully", "user_id": str(result.inserted_id)}
@@ -118,7 +118,8 @@ async def upload_user_picture(id:str,file : UploadFile=File(...)):
     image_document = {
         "user_id": id,
         "filename": new_filename,
-        "image_data": new_file
+        "file_extension": file_extension,
+        "image_data": new_filename
     }
     collection.insert_one(image_document)
     encode_pickel()

@@ -104,8 +104,6 @@ async def read_root(background_tasks: BackgroundTasks):
         background_tasks.add_task(face_reco)
     return StreamingResponse(face_reco(True), media_type="multipart/x-mixed-replace; boundary=frame")
 
-
-
 @router.get("/stop")
 async def stop_video():
     global camera_running
