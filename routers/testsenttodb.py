@@ -1,12 +1,5 @@
-from pydantic import BaseModel, ValidationError
+from datetime import datetime
 
-
-class Model(BaseModel):
-    x: str
-
-
-try:
-    Model()
-except ValidationError as exc:
-    print(repr(exc.errors()[0]['type']))
-    #> 'missing'
+now = datetime.now()
+d1 = datetime(str(now))
+print(d1)

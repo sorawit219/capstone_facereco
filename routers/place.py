@@ -1,5 +1,5 @@
 #import numpy as np
-import logging
+
 from fastapi import APIRouter
 #from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -7,8 +7,9 @@ from fastapi import UploadFile,File,HTTPException
 from fastapi.responses import FileResponse
 from pymongo import MongoClient
 from gridfs import GridFS
+from bson import ObjectId
+from typing import List
 import os
-import math
 
 # Initialize MongoDB client
 client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
@@ -35,7 +36,7 @@ class Place(BaseModel):
 @router.post("/")
 async def create_place(place: Place):
     try:
-        result = await collection_name.insert_one(place)
+        result = collection_name.insert_one(place.dict())
         inserted_id = result.inserted_id
         if result.inserted_id:
             return {"msg": "Create Place Complete", "ID": str(inserted_id)}
@@ -45,19 +46,21 @@ async def create_place(place: Place):
         raise HTTPException(status_code=500, detail=f"Failed to create place: {e}")
     
 @router.get("/")
-async def get_place_id(name: str):
+async def get_place_id(_id: str):
     try:
-        result = await collection_name.find_one({"name": name}, {"_id": 1})
+        
+        obj_id = ObjectId(_id)
+        result = collection_name.find_one({"_id": obj_id})
         if result:
-            obj_id = result["_id"]
-            return {"msg": "Found Object!!", "ID": str(obj_id)}
+            result["_id"] = str(result["_id"])
+            return {"msg": result}
         else:
             raise HTTPException(status_code=404, detail="No document found with the specified name")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get object ID: {e}")
 
 @router.post("/{place_id}/upload")
-async def upload_place_picture(place_id:str,files : UploadFile=File(...)):
+async def upload_place_picture(place_id:str,files : List[UploadFile]=File(...)):
     try:
         collection = db["place_picture"]
         file_data = []
@@ -68,7 +71,7 @@ async def upload_place_picture(place_id:str,files : UploadFile=File(...)):
                 "filename": file.filename,
                 "image_data": picture_contents
             })
-        result = await collection.insert_many(file_data)
+        result = collection.insert_many(file_data)
         if result:
             return {"msg": "Upload Complete", "count": len(result.inserted_ids)}
         else:
@@ -80,11 +83,15 @@ async def upload_place_picture(place_id:str,files : UploadFile=File(...)):
 async def download_place_picture(place_id: str):
     try:
         collection = db["place_picture"]
-        image_documents = await collection.find({"place": place_id}).to_list(None)
+        cursor = collection.find({"place_id": place_id})
+        image_documents = []
+        async for document in cursor:
+            image_documents.append(document)
+        
         if not image_documents:
             raise HTTPException(status_code=404, detail="No images found for the specified place ID")
 
-        foldermodepath = 'D:\VScode\capstone\place_img'
+        foldermodepath = 'D:\\VScode\\capstone\\place_img'
         if not os.path.exists(foldermodepath):
             os.makedirs(foldermodepath)
 
@@ -96,8 +103,7 @@ async def download_place_picture(place_id: str):
             with open(file_path, "wb") as f:
                 f.write(image_data)
             file_paths.append(file_path)
-
-        # Return file response
+        # Return file responses
         return [FileResponse(file_path) for file_path in file_paths]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download images: {e}")

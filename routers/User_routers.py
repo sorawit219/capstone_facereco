@@ -12,7 +12,6 @@ import random
 import math
 import cv2
 import pickle
-import os
 import face_recognition
 
 
@@ -119,9 +118,10 @@ async def upload_user_picture(id:str,file : UploadFile=File(...)):
         "user_id": id,
         "filename": new_filename,
         "file_extension": file_extension,
-        "image_data": new_filename
+        "image_data": picture_contents
     }
     collection.insert_one(image_document)
+    new_file.close
     encode_pickel()
     return {"msg":"Upload and Encode Complete"}
 
@@ -131,9 +131,7 @@ async def download_user_picture(id:str):
     image_document = collection.find_one({"user_id": id})
     image_name = image_document["filename"]
     image_data = image_document["image_data"]
-    foldermodepath = 'D:\VScode\capstone\img_'
-    with open(os.path.join(foldermodepath, "{id}.png"), "wb") as f:
-        f.write(image_data)
+    foldermodepath = 'D:\VScode\capstone\img_file'
     path = f"{foldermodepath}\{image_name}"
     return FileResponse(path)
 
@@ -148,7 +146,7 @@ def findEncodeing(imgLIst):
 
 def encode_pickel():
     #import img to the list
-    foldermodepath = 'D:\VScode\capstone\img_'
+    foldermodepath = 'D:\VScode\capstone\img_file'
     pathlis = os.listdir(foldermodepath)
     print(pathlis)
     imgLIst_a = [] #array of img
@@ -160,12 +158,11 @@ def encode_pickel():
         image_data = image_document["image_data"]
         with open(os.path.join(foldermodepath, filename), "wb") as f:
             f.write(image_data)
+            imgLIst_a.append(cv2.imread(os.path.join(foldermodepath,filename)))
+            studentIds.append(os.path.splitext(filename)[0])#print list numberpath
 
-    for path in pathlis:
-    
-        imgLIst_a.append(cv2.imread(os.path.join(foldermodepath,path)))
-        studentIds.append(os.path.splitext(path)[0])#print list numberpath
-
+    f.close
+        
     print(studentIds) #img name not png
     print("Encoding Started...")
     encodeListKnow = findEncodeing(imgLIst_a)
@@ -175,8 +172,3 @@ def encode_pickel():
     file = open("EncodeFile.p",'wb')
     pickle.dump(encodeLIstKnowWithIds,file)
     file.close()
-    
-    for filename in os.listdir(foldermodepath):
-        file_path = os.path.join(foldermodepath, filename)
-        if os.path.isfile(file_path):
-            os.remove(file_path)

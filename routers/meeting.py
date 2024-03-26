@@ -72,7 +72,7 @@ async def get_meeting_id(name: str):
         raise HTTPException(status_code=500, detail=f"Failed to get object ID: {e}")
 
 @router.post("/{meet_id}/upload")
-async def upload_meeting_picture(meet_id:str,files : UploadFile=File(...)):
+async def upload_meeting_picture(meet_id:str,files : List[UploadFile]=File(...)):
     try:
         collection = db["meeting_picture"]
         file_data = []
