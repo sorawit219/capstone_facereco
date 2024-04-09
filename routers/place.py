@@ -46,13 +46,12 @@ async def create_place(place: Place):
         raise HTTPException(status_code=500, detail=f"Failed to create place: {e}")
     
 @router.get("/")
-async def get_place_id(_id: str):
+async def get_place_id_from_name(name: str):
     try:
         
-        obj_id = ObjectId(_id)
-        result = collection_name.find_one({"_id": obj_id})
+        #obj_id = ObjectId(_id)
+        result = collection_name.find_one({},{"name": name})
         if result:
-            result["_id"] = str(result["_id"])
             return {"msg": result}
         else:
             raise HTTPException(status_code=404, detail="No document found with the specified name")
@@ -83,11 +82,13 @@ async def upload_place_picture(place_id:str,files : List[UploadFile]=File(...)):
 async def download_place_picture(place_id: str):
     try:
         collection = db["place_picture"]
-        cursor = collection.find({"place_id": place_id})
-        image_documents = []
+        cursor = await collection.find({"place_id": place_id})
+        image_documents = await cursor.to_list(length=None)
+        #image_documents = []
+        """
         async for document in cursor:
             image_documents.append(document)
-        
+        """
         if not image_documents:
             raise HTTPException(status_code=404, detail="No images found for the specified place ID")
 

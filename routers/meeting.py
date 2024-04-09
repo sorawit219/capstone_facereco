@@ -31,7 +31,8 @@ class Meeting(BaseModel):
     name : str
     user_create: str
     description :str
-    datetime:datetime
+    start_datetime:datetime
+    end_datetime:datetime
     place_id :str
     enrolled_users: List[str] = []
     class Config:
@@ -48,19 +49,21 @@ async def create_meeting(meeting: Meeting,place:str):
             user_create=meeting.user_create,
             description=meeting.description,
             place_id=place,
-            datetime=meeting.datetime
+            start_datetime=meeting.start_datetime,
+            end_datetime=meeting.end_datetime,
+            enrolled_users= meeting.enrolled_users
         )
-        result = await collection_name.insert_one(new_meeting)
+        result = collection_name.insert_one(new_meeting.dict())
         inserted_id = result.inserted_id
         if result.inserted_id:
-            return {"msg": "Create Place Complete", "ID": str(inserted_id)}
+            return {"msg": "Create Meeting Complete", "ID": str(inserted_id)}
         else:
             raise HTTPException(status_code=500, detail="Failed to create place")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create place: {e}")
     
 @router.get("/")
-async def get_meeting_id(name: str):
+async def get_meeting_id_from_name(name: str):
     try:
         result = await collection_name.find_one({"name": name}, {"_id": 1})
         if result:

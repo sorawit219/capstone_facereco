@@ -14,7 +14,7 @@ router = APIRouter(
 
 client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
 db = client["face_ticket"]
-collection_name = db["profiles"]
+
 
 def rand_num():#random number
     num = "0123456789"
@@ -27,6 +27,7 @@ def rand_num():#random number
 @router.post("/send")
 async def send_otp(id:str):
     url = "https://api-v2.thaibulksms.com/sms"
+    collection_name = db["profiles"]
     user_profile = collection_name.find_one({"id":str(id)})
     rand = rand_num()
     message = "Your OTP is "+str(rand)
@@ -62,7 +63,7 @@ async def send_otp(id:str):
 @router.get("/receive")
 async def receive_otp(id:str,otp:str,meeting:str):
     collection = db["OTP_user"]
-    check = collection.find_one({"user_id": id},{"OTP":otp})
+    check = collection.find_one({"user_id": id,"OTP":otp})
     if check is not None:
         current_time = datetime.now()
         previous_time = check["datetime"]

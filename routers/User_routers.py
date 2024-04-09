@@ -1,7 +1,5 @@
-#import numpy as np
 import logging
 from fastapi import APIRouter
-#from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi import UploadFile,File,HTTPException
 from fastapi.responses import FileResponse
@@ -131,7 +129,7 @@ async def download_user_picture(id:str):
     image_document = collection.find_one({"user_id": id})
     image_name = image_document["filename"]
     image_data = image_document["image_data"]
-    foldermodepath = 'D:\VScode\capstone\img_file'
+    foldermodepath = 'img_file'
     path = f"{foldermodepath}\{image_name}"
     return FileResponse(path)
 
@@ -146,7 +144,7 @@ def findEncodeing(imgLIst):
 
 def encode_pickel():
     #import img to the list
-    foldermodepath = 'D:\VScode\capstone\img_file'
+    foldermodepath = 'img_file'
     pathlis = os.listdir(foldermodepath)
     print(pathlis)
     imgLIst_a = [] #array of img
