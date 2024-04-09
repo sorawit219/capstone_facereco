@@ -1,4 +1,4 @@
-env/
+tutorial-env/
 __pycache__
 
 *.env
