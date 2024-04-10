@@ -36,7 +36,7 @@ class Place(BaseModel):
 @router.post("/")
 async def create_place(place: Place):
     try:
-        result = collection_name.insert_one(place.dict())
+        result = collection_name.insert_one(place.model_dump())
         inserted_id = result.inserted_id
         if result.inserted_id:
             return {"msg": "Create Place Complete", "ID": str(inserted_id)}
@@ -84,11 +84,6 @@ async def download_place_picture(place_id: str):
         collection = db["place_picture"]
         cursor = await collection.find({"place_id": place_id})
         image_documents = await cursor.to_list(length=None)
-        #image_documents = []
-        """
-        async for document in cursor:
-            image_documents.append(document)
-        """
         if not image_documents:
             raise HTTPException(status_code=404, detail="No images found for the specified place ID")
 

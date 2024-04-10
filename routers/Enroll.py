@@ -129,32 +129,33 @@ async def create_enrollment(id:str,meet_id:str,choice:int):#face+otp =1 , face+q
             enrollment = Enroll(meet_id=str(meet_id), user_id=str(id), date_time=datetime.now(), text=string_hash, qrcode=png_content.getvalue())
             # Insert enrollment data into the database
             result_insert = db["enrollments"].insert_one(enrollment.model_dump())
-            if result_insert:
-                # Send email with QR code
-                to_email = result.get("email", "")
-                if to_email:
+            if (choice!=1):
+                if result_insert:
+                    # Send email with QR code
+                    to_email = result.get("email", "")
+                    if to_email:
                     
-                    em = EmailMessage()
-                    em['From'] = 'capstone.FaceRec@gmail.com'
-                    em['To'] = to_email
-                    em['Subject'] = 'Here is QR-code'
-                    em.set_content(body)
-                    em.add_attachment(png_content.getvalue(), maintype='image', subtype='png', filename='QR_code.png')
+                        em = EmailMessage()
+                        em['From'] = 'capstone.FaceRec@gmail.com'
+                        em['To'] = to_email
+                        em['Subject'] = 'Here is QR-code'
+                        em.set_content(body)
+                        em.add_attachment(png_content.getvalue(), maintype='image', subtype='png', filename='QR_code.png')
                     
-                    context = ssl.create_default_context()
-                    smtp_server = "smtp.gmail.com"
-                    smtp_port = 465
-                    smtp_username = "capstone.facerec@gmail.com"
-                    smtp_password = "qjvz izcl ehtr bwlw"
+                        context = ssl.create_default_context()
+                        smtp_server = "smtp.gmail.com"
+                        smtp_port = 465
+                        smtp_username = "capstone.facerec@gmail.com"
+                        smtp_password = "qjvz izcl ehtr bwlw"
                     
-                    with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context) as smtp:
-                        smtp.login(smtp_username, smtp_password)
-                        smtp.send_message(em)
-                    print("Email sent successfully!")
+                        with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context) as smtp:
+                            smtp.login(smtp_username, smtp_password)
+                            smtp.send_message(em)
+                        print("Email sent successfully!")
+                    else:
+                        return {"error": "User's email not found"}
                 else:
-                    return {"error": "User's email not found"}
-            else:
-                return {"error": "Failed to insert enrollment data into the database"}
+                    return {"error": "Failed to insert enrollment data into the database"}
         else:
             return {"error": "User not found"}
     except Exception as e:

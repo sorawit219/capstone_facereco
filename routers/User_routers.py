@@ -72,7 +72,7 @@ async def create_user(user:User):
     while collection_name.find_one({"id": str(x)}):
         x = str(rand_num())
     user_with_picture = User(id=x,name=user.name, nickname=user.nickname,phone_number=user.phone_number,lineID=user.lineID,email=user.email)
-    result = collection_name.insert_one(user_with_picture.dict())
+    result = collection_name.insert_one(user_with_picture.model_dump())
     if result.acknowledged:
         return {"message": "User created successfully", "user_id": str(result.inserted_id)}
     else:

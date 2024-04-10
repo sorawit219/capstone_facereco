@@ -102,7 +102,7 @@ async def download_meeting_picture(meet_id: str):
         if not image_documents:
             raise HTTPException(status_code=404, detail="No images found for the specified place ID")
 
-        foldermodepath = 'D:\VScode\capstone\place_img'
+        foldermodepath = 'all_img\place_img'
         if not os.path.exists(foldermodepath):
             os.makedirs(foldermodepath)
 

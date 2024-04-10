@@ -69,7 +69,7 @@ async def face_reco(qrcode:bool):
     global string_hash
     string_hash = "none"
     try:
-        with open("D:/VScode/capstone/EncodeFile.p", 'rb') as file:
+        with open("EncodeFile.p", 'rb') as file:
             encodeListKnowWithIds = pickle.load(file)
             encodeListKnow, studentIds = encodeListKnowWithIds
         print("Encoding file Loaded")
