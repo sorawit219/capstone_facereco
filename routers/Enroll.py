@@ -5,7 +5,7 @@ from fastapi import APIRouter,HTTPException
 from pydantic import BaseModel
 from pymongo import MongoClient
 # Initialize MongoDB client
-import datetime
+from datetime import datetime
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -15,6 +15,7 @@ import math
 import hashlib
 from io import BytesIO
 from bson import ObjectId
+
 
 
 smtp_server = 'smtp.gmail.com'
@@ -46,14 +47,14 @@ router = APIRouter(
 class Enroll(BaseModel):
     meet_id :str
     user_id : str
-    date_time : datetime.datetime
+    date_time : datetime
     qrcode : bytes
     text : str
 
 class Qr_otp(BaseModel):
     meet_id :str
     user_id : str
-    date_time : datetime.datetime
+    date_time : datetime
     rand : str
     qrcode : bytes
     text: str
@@ -69,8 +70,7 @@ def rand_num():#random number
 def generate_qr(name):
     x = rand_num()#generate number
     qr_data = f"{x}_{name}"  # Combining random number and name
-    qr_data = qr_data.strip
-    shuffled_data = ''.join(random.sample(qr_data.strip(), len(qr_data)))  # Shuffle the data after removing whitespace
+    shuffled_data = ''.join(random.sample(qr_data.strip(" "), len(qr_data)))  # Shuffle the data after removing whitespace
     qr = pyqrcode.create(shuffled_data) #create qrcode
     png_content = BytesIO()
     qr.png(png_content, scale=6)
@@ -119,20 +119,21 @@ async def create_enrollment(id:str,meet_id:str,choice:int):#face+otp =1 , face+q
         collection_name = db["profiles"]
         result = collection_name.find_one(criteria, {"name": 1, "email": 1})
         if result:
-            name = result.get("name", "").strip()  # Remove leading and trailing whitespace from the name
+            print(result)
+            name = result["name"]# Remove leading and trailing whitespace from the name
             shuffled_data, png_content = generate_qr(name)
             sha256 = hashlib.sha256()
-            print(shuffled_data)
             sha256.update(shuffled_data.encode('utf-8'))
             string_hash = sha256.hexdigest()
             #print("hash complete")
             enrollment = Enroll(meet_id=str(meet_id), user_id=str(id), date_time=datetime.now(), text=string_hash, qrcode=png_content.getvalue())
             # Insert enrollment data into the database
-            result_insert = db["enrollments"].insert_one(enrollment.model_dump())
+            result_insert = db["user_enrollments"].insert_one(enrollment.model_dump())
+            #not sent email to one qr code email
             if (choice!=1):
                 if result_insert:
                     # Send email with QR code
-                    to_email = result.get("email", "")
+                    to_email = result["email"]
                     if to_email:
                     
                         em = EmailMessage()
@@ -151,11 +152,12 @@ async def create_enrollment(id:str,meet_id:str,choice:int):#face+otp =1 , face+q
                         with smtplib.SMTP_SSL(smtp_server, smtp_port, context=context) as smtp:
                             smtp.login(smtp_username, smtp_password)
                             smtp.send_message(em)
-                        print("Email sent successfully!")
+                        return {"msg": "Email sent successfully!"}
                     else:
                         return {"error": "User's email not found"}
                 else:
                     return {"error": "Failed to insert enrollment data into the database"}
+                
         else:
             return {"error": "User not found"}
     except Exception as e:

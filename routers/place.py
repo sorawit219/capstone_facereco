@@ -4,12 +4,13 @@ from fastapi import APIRouter
 #from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi import UploadFile,File,HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 from pymongo import MongoClient
 from gridfs import GridFS
 from bson import ObjectId
 from typing import List
-import os
+
+
 
 # Initialize MongoDB client
 client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
@@ -81,25 +82,22 @@ async def upload_place_picture(place_id:str,files : List[UploadFile]=File(...)):
 @router.get("/{place_id}/getImage")
 async def download_place_picture(place_id: str):
     try:
-        collection = db["place_picture"]
-        cursor = await collection.find({"place_id": place_id})
-        image_documents = await cursor.to_list(length=None)
-        if not image_documents:
+        if not ObjectId.is_valid(place_id):
             raise HTTPException(status_code=404, detail="No images found for the specified place ID")
+        collection = db["place_picture"]
+        files = collection.find({"place_id": place_id})
+        
+        if files.count() == 0:
+              raise HTTPException(status_code=404, detail="No files found for this place_id")
+        
+        async def stream_files():
+            for file in files:
+                yield file["image_data"]
 
-        foldermodepath = 'D:\\VScode\\capstone\\place_img'
-        if not os.path.exists(foldermodepath):
-            os.makedirs(foldermodepath)
+        # Return a StreamingResponse with the streamed files
+        return StreamingResponse(stream_files(), media_type="application/octet-stream")
 
-        file_paths = []
-        for image_document in image_documents:
-            image_name = image_document["filename"]
-            image_data = image_document["image_data"]
-            file_path = os.path.join(foldermodepath, f"{place_id}_{image_name}.png")
-            with open(file_path, "wb") as f:
-                f.write(image_data)
-            file_paths.append(file_path)
-        # Return file responses
-        return [FileResponse(file_path) for file_path in file_paths]
+
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to download images: {e}")

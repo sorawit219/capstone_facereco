@@ -148,7 +148,7 @@ async def read_root(background_tasks: BackgroundTasks):
     global camera_running
     if not camera_running:
         camera_running = True
-        background_tasks.add_task(face_reco)
+        background_tasks.add_task(face_reco,qrcode = False)
     return StreamingResponse(face_reco(False), media_type="multipart/x-mixed-replace; boundary=frame")
 
 @router.get("/video+qr")
@@ -156,7 +156,7 @@ async def read_root(background_tasks: BackgroundTasks):
     global camera_running
     if not camera_running:
         camera_running = True
-        background_tasks.add_task(face_reco)
+        background_tasks.add_task(face_reco,qrcode = False)
     return StreamingResponse(face_reco(True), media_type="multipart/x-mixed-replace; boundary=frame")
 
 @router.get("/qr+otp")
