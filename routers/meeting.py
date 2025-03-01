@@ -9,10 +9,12 @@ from gridfs import GridFS
 from typing import List
 from datetime import datetime
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 # Initialize MongoDB client
-client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
-db = client["face_ticket"]
+client = MongoClient(os.getenv('MONGODB_URL'))
+db = client[os.getenv('DATABASE_NAME')]
 collection_name = db["meeting"]
 fs = GridFS(db)
 

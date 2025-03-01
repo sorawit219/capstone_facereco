@@ -15,9 +15,12 @@ from fastapi.responses import FileResponse
 import urllib
 import shutil
 import uuid
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
-client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
-db = client["face_ticket"]
+client = MongoClient(os.getenv('MONGODB_URL'))
+db = client[os.getenv('DATABASE_NAME')]
 collection = db["user_enrollments"]
 router = APIRouter()
 

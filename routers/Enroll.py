@@ -15,21 +15,24 @@ import math
 import hashlib
 from io import BytesIO
 from bson import ObjectId
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 
 
-smtp_server = 'smtp.gmail.com'
-smtp_port = 465
-smtp_username = 'capstone.facerec@gmail.com'
-smtp_password = 'qjvz izcl ehtr bwlw'
+smtp_server = os.getenv('SMTP_SERVER')
+smtp_port = os.getenv('SMTP_PORT')
+smtp_username = os.getenv('SMTP_USERNAME')
+smtp_password = os.getenv('SMTP_PASSWORD')
 
 from_email = 'capstone.FaceRec@gmail.com'
 subject = 'Here is QR-code'
 body = 'Thank for using FACETICKET'
 
 
-client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
-db = client["face_ticket"]
+client = MongoClient(os.getenv('MONGODB_URL'))
+db = client[os.getenv('DATABASE_NAME')]
 collection_name = db["user_enrollments"]
 
  

@@ -4,6 +4,9 @@ from pymongo import MongoClient
 from datetime import datetime,timedelta
 import random
 import math
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 router = APIRouter(
     prefix="/otp",
@@ -13,8 +16,9 @@ router = APIRouter(
     }}
 )
 
-client = MongoClient("mongodb+srv://admin2:el3OOhw4nt8bH2qa@cluster0.aq1yq2n.mongodb.net/")
-db = client["face_ticket"]
+
+client = MongoClient(os.getenv('MONGODB_URL'))
+db = client[os.getenv('DATABASE_NAME')]
 
 
 def rand_num():#random number
