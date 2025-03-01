@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from datetime import datetime,timedelta
 import random
 import math
+
 router = APIRouter(
     prefix="/otp",
     tags=['OTP'],
