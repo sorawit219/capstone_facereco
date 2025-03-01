@@ -5,7 +5,8 @@ from routers.face_reco_router2 import router as face_reco_router
 from routers import Enroll as enroll
 from routers import place,meeting,OTPViaSMS
 from fastapi.middleware.cors import CORSMiddleware
-
+from dotenv import load_dotenv
+import os
 
 app = FastAPI()
 
