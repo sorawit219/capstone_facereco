@@ -18,7 +18,7 @@ load_dotenv()
 # Initialize MongoDB client
 client = MongoClient(os.getenv('MONGODB_URL'))
 db = client[os.getenv('DATABASE_NAME')]
-collection_name = db["profiles"]
+collection_name = db[os.getenv('COLLECTION_PROFILE')]
 fs = GridFS(db)
 
 

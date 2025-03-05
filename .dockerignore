@@ -1,6 +1,6 @@
 tutorial-env/
 routers\__pycache__
 
-*.env
+
 *.env.*
 env.*
