@@ -9,4 +9,3 @@ PyQRCode==1.2.1
 pyzbar==0.1.9
 requests==2.32.3
 python-dotenv==1.0.1
-dlib --no-cache-dir
