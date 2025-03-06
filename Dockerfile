@@ -2,13 +2,6 @@ FROM python:3.10.0-alpine
  
 WORKDIR /capstone
 
-RUN apt-get update \
-    && apt-get install -y build-essential cmake 
-RUN apt install libgl1-mesa-glx -y
-RUN apt-get install 'ffmpeg'\
-    'libsm6'\
-    'libxext6'  -y
-RUN apt-get install -y libzbar0
 COPY ./requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
  
