@@ -1,15 +1,28 @@
-FROM python:3.10.0-alpine
- 
+FROM python:3.10-slim
+
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    python3-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libx11-dev \
+    libgtk-3-dev \
+    && apt-get clean
+
+
 WORKDIR /capstone
-RUN apt update && apt install -y cmake g++ make \
-    && pip install dlib face-recognition
-COPY ./requirements.txt ./
+
+
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
- 
- 
-COPY main.py main.py
-COPY ./routers ./routers
-COPY ./lall_img ./lall_img
 
 
-CMD [ "uvicorn", "--host", "0.0.0.0", "main:app","--port","8070","--reload" ]
+COPY . .
+
+
+EXPOSE 8070
+
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8070", "--reload"]

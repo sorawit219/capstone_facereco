@@ -7,5 +7,6 @@ pydantic==2.10.6
 pymongo==4.6.3
 PyQRCode==1.2.1
 pyzbar==0.1.9
-Requests==2.32.3
-dotenv
+requests==2.32.3
+python-dotenv==1.0.1
+dlib --no-cache-dir
