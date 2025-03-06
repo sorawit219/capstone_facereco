@@ -1,5 +1,5 @@
-FROM python:3.10-slim
 
+FROM python:3.10
 
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y \
     liblapack-dev \
     libx11-dev \
     libgtk-3-dev \
+    libboost-python-dev \
+    libboost-all-dev \
     && apt-get clean
 
 
