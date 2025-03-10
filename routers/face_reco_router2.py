@@ -32,7 +32,7 @@ encodeListKnowWithIds = None
 
 #read qr code and sent otp
 @router.websocket("/qr+otp")
-async def read_qr(meeting:str,file: UploadFile = File(...)):
+async def read_Qr_and_Send_otp(meeting:str,file: UploadFile = File(...)):
 
     global string_hash
     string_hash = "none"
