@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks,File,UploadFile
+from fastapi import APIRouter, BackgroundTasks,File,UploadFile,WebSocket
 import pickle
 import cv2
 import face_recognition
@@ -27,12 +27,11 @@ router = APIRouter()
 encodeListKnowWithIds = None
 
 # Global variable to track if the camera is running
-camera_running = False
 
 
 
 #read qr code and sent otp
-@router.get("/qr+otp")
+@router.websocket("/qr+otp")
 async def read_qr(meeting:str,file: UploadFile = File(...)):
 
     global string_hash
