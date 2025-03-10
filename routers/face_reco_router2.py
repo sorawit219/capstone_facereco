@@ -17,18 +17,21 @@ import shutil
 import uuid
 from dotenv import load_dotenv
 import os
+
 load_dotenv()
 
 client = MongoClient(os.getenv('MONGODB_URL'))
 db = client[os.getenv('DATABASE_NAME')]
 collection = db["user_enrollments"]
 router = APIRouter()
-
+encodeListKnowWithIds = None
 
 # Global variable to track if the camera is running
+camera_running = False
 
 
-#read qr code and and sent otp
+
+#read qr code and sent otp
 @router.get("/qr+otp")
 async def read_qr(meeting:str,file: UploadFile = File(...)):
 
@@ -39,7 +42,7 @@ async def read_qr(meeting:str,file: UploadFile = File(...)):
     with open(file.filename, "wb") as img:
         img.write(contents)
 
-  
+    
     gray_image = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     decoded_objects = decode(gray_image)
     for obj in decoded_objects:
@@ -77,7 +80,7 @@ async def read_qr(meeting:str,file: UploadFile = File(...)):
 #read face reco and qr or face reco and sent otp
 @router.get("/video+otp_or_face+otp")
 async def face_reco(qrcode:bool,meeting:str,file: UploadFile = File(...)):    
-    encodeListKnowWithIds = None
+    global encodeListKnow
     encodeListKnow = None
     global string_hash
     string_hash = "none"
@@ -93,6 +96,7 @@ async def face_reco(qrcode:bool,meeting:str,file: UploadFile = File(...)):
         print("Encoding file Loaded")
     except FileNotFoundError:
             print("Error: Encoding file not found.")
+            encodeListKnowWithIds = None
 
     current_time = datetime.now()
 
