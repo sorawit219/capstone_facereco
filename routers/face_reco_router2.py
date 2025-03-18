@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks,File,UploadFile,WebSocket
+from fastapi import APIRouter, BackgroundTasks,File,UploadFile,WebSocket,HTTPException
 import pickle
 import cv2
 import face_recognition
@@ -7,7 +7,7 @@ import asyncio
 from pymongo import MongoClient
 from pyzbar.pyzbar import decode
 import hashlib
-import datetime
+from datetime import datetime, timedelta
 import requests
 import math
 import random
@@ -23,7 +23,7 @@ load_dotenv()
 
 client = MongoClient(os.getenv('MONGODB_URL'))
 db = client[os.getenv('DATABASE_NAME')]
-collection = db["user_enrollments"]
+collection = db[os.getenv('COLLECTION_USER_ENROLLMENT')]
 router = APIRouter()
 encodeListKnowWithIds = None
 
@@ -35,58 +35,40 @@ BUFFER_LIMIT = 5
 #face_reco + otp
 #face_reco + qr code
 
-#read qr code and sent otp
+#read qr code and sent otp        
 @router.websocket("/qr+otp")
-async def read_Qr_and_Send_otp(meeting:str,file: UploadFile = File(...)):
+async def read_qr(meeting:str,websocket: WebSocket):
+    await websocket.accept()
+    otp_sent_users = set()
+    try:
+        while True:
+            qr_data = await websocket.receive_text()  # รับข้อมูล QR Code
+            sha256 = hashlib.sha256()
+            sha256.update(qr_data.encode('utf-8'))
+            string_hash = sha256.hexdigest()
 
-    global string_hash
-    string_hash = "none"
-    file.filename = f"{uuid.uuid4()}.png"
-    contents = await file.read()
-    with open(file.filename, "wb") as img:
-        img.write(contents)
-
-    
-    gray_image = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    decoded_objects = decode(gray_image)
-    for obj in decoded_objects:
-        object_data =  obj.data.decode('utf-8')
-        sha256 = hashlib.sha256()
-        sha256.update(object_data.encode('utf-8'))
-        string_hash = sha256.hexdigest()
-           
-    result = collection.find_one({"text":string_hash},{})
-    text_id = result.get("user_id")
-    current_time = datetime.now()
-    if result:
-        send_otp(text_id)
-        collection = db["time_stamps"]
-        document = {"user_id" : id,
-                "meeting_id":meeting,
-                "OTP": None,
-                "STATUS" : True,
-                "datetime" :current_time}
-        collection.insert_one(document)
-        return {"ID":str(text_id),"msg":"OTP sent!!"}
-    else: 
-        collection = db["time_stamps"]
-        document = {"user_id" : id,
-                "meeting_id":meeting,
-                "OTP": None,
-                "STATUS" : False,
-                "datetime" :current_time}
-        collection.insert_one(document)
-        return {"msg":"Not Found Qr Code was Match","match_status": "Fail" }
-        
+            # ค้นหา QR Code ในฐานข้อมูล
+            result = collection.find_one({"text": string_hash})
+            if result:
+                user_id = result["user_id"]                
+                otp = send_otp(user_id)  # ส่ง OTP
+                if user_id not in otp_sent_users:
+                    otp_sent_users.add(user_id)
+                    await websocket.send_text(f"OTP sent to user {user_id}")
+            else:
+                await websocket.send_text("QR Code not found in database")
+    except Exception as e:
+        await websocket.send_text(f"Error: {str(e)}")
+    finally:
+        await websocket.close()
 
 
-
-#read face reco and qr or face reco and sent otp
+#read face-recognition and qr-code
 @router.websocket("/face_reco_+_qr_code")
 async def face_reco(meeting:str,websocket:WebSocket):    
     
     await websocket.accept()
-    print("🔵 WebSocket Connected!")
+    print("WebSocket Connected!")
 
     global encodeListKnow
         
@@ -108,7 +90,7 @@ async def face_reco(meeting:str,websocket:WebSocket):
             np_arr = np.frombuffer(img_data, np.uint8)
             img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
-            current_time = datetime.datetime.now()
+            current_time = datetime.now()
 
             # ✅ ตรวจจับ QR Code
             qr_code_text = None
@@ -174,7 +156,8 @@ async def face_reco(meeting:str,websocket:WebSocket):
             await websocket.send_json({"msg": msg, "status": status})
 
     except Exception as e:
-        print(f"🔴 Error: {e}")
+        print(f"Error: {e}")
+
 
 
 
@@ -186,7 +169,7 @@ def rand_num():#random number
     print(six_digits)
     return six_digits
 
-def send_otp(id:str):
+async def send_otp(id:str):
     url = "https://api-v2.thaibulksms.com/sms"
     collection_name = db["profiles"]
     user_profile = collection_name.find_one({"id":str(id)})
@@ -206,14 +189,50 @@ def send_otp(id:str):
     #have 3 user token free per api key for this api therefore can sent 3 time use carefully if want to sent more pay it
 
     response = requests.post(url, data=payload, headers=headers)
-    collection = db["OTP_user"]
+    collection_store_otp = db[os.getenv('COLLECTION_USER_OTP')]
     x = datetime.now()
     document = {
         "user_id" : id,
         "OTP" : str(rand),
         "datetime" : x
     }
-    check = collection.insert_one(document)
+    check = collection_store_otp.insert_one(document) #save otp to database
     print(response.text)
     return check
 
+#check otp when user enter its
+@router.post("/verify_otp")
+async def verify_otp(user_id: str,meeting:str, otp: str):
+
+    OTP_EXPIRY_TIME = timedelta(minutes=5)
+
+    collection_store_otp = db[os.getenv('COLLECTION_USER_OTP')]
+    otp_sent_users = collection_store_otp.find_one({"user_id": user_id})
+
+    status = True
+
+    if otp_sent_users is None:
+        status = False
+        raise HTTPException(status_code=404, detail="No OTP found for this user")
+
+    if otp_sent_users["OTP"] != otp:
+        status = False
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # ตรวจสอบว่า OTP หมดอายุหรือยัง
+    if datetime.now() - otp_sent_users["datetime"] > OTP_EXPIRY_TIME:
+        status = False
+        raise HTTPException(status_code=400, detail="OTP expired")
+
+    #save log
+    time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
+    document = {
+        "user_id" : user_id,
+        "meeting_id":meeting,
+        "OTP": otp,
+        "STATUS" : status,
+        "datetime" :datetime.now()
+    }
+    time_stamp_collection.insert_one(document)
+
+    return {"message": "OTP verified successfully"}
