@@ -40,6 +40,7 @@ async def send_otp(id:str):
         "msisdn": user_profile["phone_number"] ,
         "message": message,
         "sender": "Demo",
+        "force" : "corporate",
     }
     headers = {
         "accept": "application/json",
