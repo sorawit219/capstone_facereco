@@ -37,7 +37,7 @@ BUFFER_LIMIT = 5
 
 #read qr code and sent otp        
 @router.websocket("/qr+otp")
-async def read_qr(meeting:str,websocket: WebSocket):
+async def read_qr(websocket: WebSocket):
     await websocket.accept()
     otp_sent_users = set()
     try:
