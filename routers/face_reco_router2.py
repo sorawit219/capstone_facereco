@@ -63,6 +63,9 @@ async def read_qr(meeting:str,websocket: WebSocket):
         await websocket.close()
 
 
+
+
+
 #read face-recognition and qr-code
 @router.websocket("/face_reco_+_qr_code")
 async def face_reco(meeting:str,websocket:WebSocket):    
