@@ -100,13 +100,20 @@ async def face_reco(meeting:str,websocket:WebSocket):
             imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
             imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
 
-            face_loction = face_recognition.face_locations(imgS)
-            encodeCurFrame = face_recognition.face_encodings(imgS, face_loction)
+            face_location = face_recognition.face_locations(imgS)
+            if not face_location:
+                await websocket.send_text("No face detected")
+                continue
+            encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
 
-            for encodeFace, faceLoc in zip(encodeCurFrame, face_loction):
+            for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
                 matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
                 faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
                 matchIndex = np.argmin(faceDis)
+
+                if not any(matches):  # ไม่มีใบหน้าตรงกัน
+                    await websocket.send_text("Face not recognized")
+                    continue
 
                 if matches[matchIndex]:
                     recognized_id = UserId[matchIndex]
@@ -114,8 +121,9 @@ async def face_reco(meeting:str,websocket:WebSocket):
                     y1, x2, y2, x1 = faceLoc
                     y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
                     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.rectangle(img, (x1, y2 - 35), (x2, y2), (0, 255, 0), cv2.FILLED)
                     cv2.putText(img, name, (x1 + 6, y2 - 6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                    
+                    
                     if recognized_id not in otp_sent_users:
                         otp_sent_users.add(recognized_id)
                         otp = send_otp(recognized_id)  # ส่ง OTP
@@ -170,23 +178,29 @@ async def face_reco(meeting:str,websocket:WebSocket):
             imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
             imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
             face_location = face_recognition.face_locations(imgS)
+            if not face_location:
+                await websocket.send_text("No face detected")
+                continue
             encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
 
             for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
                 matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
+                if not any(matches):  # ไม่มีใบหน้าตรงกัน
+                    await websocket.send_text("Face not recognized")
+                    continue
                 faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
                 matchIndex = np.argmin(faceDis)
 
-            recognized_id = None
-            if matches[matchIndex]:
-                recognized_id = UserId[matchIndex]
-                print(f"Known Face Detected - ID:{recognized_id}")
-                name = collection.find_one({"user_id": recognized_id})["name"]
-                y1, x2, y2, x1 = faceLoc
-                y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
-                bbox = x1, y2-175, x2-x1, y2-y1
-                cv2.rectangle(img, bbox, (0, 255, 0), 2)
-                cv2.putText(img, name, (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                recognized_id = None
+                if matches[matchIndex]:
+                    recognized_id = UserId[matchIndex]
+                    print(f"Known Face Detected - ID:{recognized_id}")
+                    name = collection.find_one({"user_id": recognized_id})["name"]
+                    y1, x2, y2, x1 = faceLoc
+                    y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
+                    bbox = x1, y2-175, x2-x1, y2-y1
+                    cv2.rectangle(img, bbox, (0, 255, 0), 2)
+                    cv2.putText(img, name, (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
             
             status = False
             if recognized_id and string_hash:
@@ -199,7 +213,7 @@ async def face_reco(meeting:str,websocket:WebSocket):
                     msg = " QR Code not match User Or not enroll in this meeting "
             elif recognized_id:
                 status = False
-                msg = f"User {recognized_id} Pass! But not have QR-code"
+                msg = f"User {recognized_id} Pass! But not have QR-code.Plase scan QR-code"
 
             # ✅ เพิ่มข้อมูลลง Buffer
             buffer.append({
