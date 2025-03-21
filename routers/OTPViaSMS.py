@@ -45,7 +45,7 @@ async def send_otp(id:str):
     headers = {
         "accept": "application/json",
         "content-type": "application/x-www-form-urlencoded",
-        "authorization": "Basic MXVxbXNtODllc0RrS3JFNzNpeHlUUjFzVnVPWUpCOnJGQUNTNXQweHpKSHY2VGh4ZEt3czhsZ2pQcnlHNQ=="
+        "authorization": os.getenv('API_KEY')
     }
 
     #have 3 user token free per api key for this api therefore can sent 3 time use carefully if want to sent more pay it
