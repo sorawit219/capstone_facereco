@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks,File,UploadFile,WebSocket,HTTPException
+from fastapi import APIRouter,WebSocket,WebSocketDisconnect
 import pickle
 import cv2
 import face_recognition
@@ -35,7 +35,7 @@ BUFFER_LIMIT = 5
 #face_reco + otp
 #face_reco + qr code
 
-#read qr code and sent otp        
+#read qr-code and sent otp        
 @router.websocket("/qr+otp")
 async def read_qr(websocket: WebSocket):
     await websocket.accept()
@@ -51,23 +51,83 @@ async def read_qr(websocket: WebSocket):
             result = collection.find_one({"text": string_hash})
             if result:
                 user_id = result["user_id"]                
-                otp = send_otp(user_id)  # ส่ง OTP
                 if user_id not in otp_sent_users:
                     otp_sent_users.add(user_id)
+                    otp = send_otp(user_id)  # ส่ง OTP
                     await websocket.send_text(f"OTP sent to user {user_id}")
             else:
                 await websocket.send_text("QR Code not found in database")
+
+    except WebSocketDisconnect:
+        print("WebSocket Disconnected")
     except Exception as e:
         await websocket.send_text(f"Error: {str(e)}")
     finally:
         await websocket.close()
 
 
+#read face-recognition and sent otp
+@router.websocket("/face_reco+otp")
+async def face_reco(meeting:str,websocket:WebSocket):    
+    await websocket.accept()
+    print("WebSocket Connected!")
 
+    global encodeListKnow
+    otp_sent_users = set()
+        
+    try:
+        with open("EncodeFile.p", 'rb') as file:
+            encodeListKnowWithIds = pickle.load(file)
+            encodeListKnow, UserId = encodeListKnowWithIds
+        print("Encoding file Loaded")
+    except FileNotFoundError:
+            print("Error: Encoding file not found.")
+            encodeListKnowWithIds = None
+    
+    if encodeListKnowWithIds is None:
+        await websocket.send_text("Face encoding data not available")
+        await websocket.close()
+        return
+
+    try:
+        while True:
+            frame_data = await websocket.receive_text()
+            # แปลง Base64 เป็น OpenCV Image
+            header, encoded = frame_data.split(",", 1)            
+            img_data = base64.b64decode(encoded)
+            np_arr = np.frombuffer(img_data, np.uint8)
+            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
+            imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+
+            face_loction = face_recognition.face_locations(imgS)
+            encodeCurFrame = face_recognition.face_encodings(imgS, face_loction)
+
+            for encodeFace, faceLoc in zip(encodeCurFrame, face_loction):
+                matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
+                faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
+                matchIndex = np.argmin(faceDis)
+
+                if matches[matchIndex]:
+                    recognized_id = UserId[matchIndex]
+                    name = collection.find_one({"user_id": recognized_id})["name"]
+                    y1, x2, y2, x1 = faceLoc
+                    y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.rectangle(img, (x1, y2 - 35), (x2, y2), (0, 255, 0), cv2.FILLED)
+                    cv2.putText(img, name, (x1 + 6, y2 - 6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                    if recognized_id not in otp_sent_users:
+                        otp_sent_users.add(recognized_id)
+                        otp = send_otp(recognized_id)  # ส่ง OTP
+                        await websocket.send_text(f"OTP sent to user {recognized_id}")
+    except WebSocketDisconnect:
+        print("WebSocket Disconnected")       
+    except Exception as e:
+        print(f"Error: {e}")
 
 
 #read face-recognition and qr-code
-@router.websocket("/face_reco_+_qr_code")
+@router.websocket("/face_reco+qr")
 async def face_reco(meeting:str,websocket:WebSocket):    
     
     await websocket.accept()
@@ -121,12 +181,12 @@ async def face_reco(meeting:str,websocket:WebSocket):
             if matches[matchIndex]:
                 recognized_id = UserId[matchIndex]
                 print(f"Known Face Detected - ID:{recognized_id}")
-
-            y1, x2, y2, x1 = faceLoc
-            y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
-            bbox = x1, y2-175, x2-x1, y2-y1
-            cv2.rectangle(img, bbox, (0, 255, 0), 2)
-            cv2.putText(img, str(recognized_id), (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                name = collection.find_one({"user_id": recognized_id})["name"]
+                y1, x2, y2, x1 = faceLoc
+                y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
+                bbox = x1, y2-175, x2-x1, y2-y1
+                cv2.rectangle(img, bbox, (0, 255, 0), 2)
+                cv2.putText(img, name, (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
             
             status = False
             if recognized_id and string_hash:
@@ -157,6 +217,9 @@ async def face_reco(meeting:str,websocket:WebSocket):
             
             # ✅ ส่งผลลัพธ์กลับไปยัง Frontend
             await websocket.send_json({"msg": msg, "status": status})
+
+    except WebSocketDisconnect:
+        print("WebSocket Disconnected")
 
     except Exception as e:
         print(f"Error: {e}")
@@ -203,40 +266,3 @@ async def send_otp(id:str):
     check = collection_store_otp.insert_one(document) #save otp to database
     print(response.text)
     return check
-
-#check otp when user enter its
-@router.post("/verify_otp")
-async def verify_otp(user_id: str,meeting:str, otp: str):
-
-    OTP_EXPIRY_TIME = timedelta(minutes=5)
-
-    collection_store_otp = db[os.getenv('COLLECTION_USER_OTP')]
-    otp_sent_users = collection_store_otp.find_one({"user_id": user_id})
-
-    status = True
-
-    if otp_sent_users is None:
-        status = False
-        raise HTTPException(status_code=404, detail="No OTP found for this user")
-
-    if otp_sent_users["OTP"] != otp:
-        status = False
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    # ตรวจสอบว่า OTP หมดอายุหรือยัง
-    if datetime.now() - otp_sent_users["datetime"] > OTP_EXPIRY_TIME:
-        status = False
-        raise HTTPException(status_code=400, detail="OTP expired")
-
-    #save log
-    time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
-    document = {
-        "user_id" : user_id,
-        "meeting_id":meeting,
-        "OTP": otp,
-        "STATUS" : status,
-        "datetime" :datetime.now()
-    }
-    time_stamp_collection.insert_one(document)
-
-    return {"message": "OTP verified successfully"}

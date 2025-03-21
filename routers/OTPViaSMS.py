@@ -1,5 +1,5 @@
 import requests
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pymongo import MongoClient
 from datetime import datetime,timedelta
 import random
@@ -66,35 +66,38 @@ async def send_otp(id:str):
         result = {'msg': "Cannot create collection for OTP"}
     return result
 
-@router.get("/receive")
-async def receive_otp(id:str,otp:str,meeting:str):
-    collection = db["OTP_user"]
-    check = collection.find_one({"user_id": id,"OTP":otp})
-    if check is not None:
-        current_time = datetime.now()
-        previous_time = check["datetime"]
-        time_difference = current_time - previous_time
-        three_minutes = timedelta(minutes=3)
-        if time_difference >= three_minutes:
-            collection2 = db["time_stamps"]
-            document = {
-                "user_id" : id,
-                "meeting_id":meeting,
-                "OTP": otp,
-                "STATUS" : False,
-                "datetime" :current_time
-            }
-            collection2.insert_one(document)
-            return {"msg":"Your OTP now is Invalid"}
-        else:
-            collection2 = db["time_stamps"]
-            document = {
-                "user_id" : id,
-                "meeting_id":meeting,
-                "OTP": otp,
-                "STATUS" : True,
-                "datetime" :current_time
-            }
-            collection2.insert_one(document)
-            return {"msg":"Your OTP is Pass , Thank You!!!"}
-    else : return {"msg": "Not found Your OTP.Please put OTP again or send OTP again"}
+@router.post("/verify_otp")
+async def verify_otp(user_id: str,meeting:str, otp: str):
+
+    OTP_EXPIRY_TIME = timedelta(minutes=5)
+
+    collection_store_otp = db[os.getenv('COLLECTION_USER_OTP')]
+    otp_sent_users = collection_store_otp.find_one({"user_id": user_id})
+
+    status = True
+
+    if otp_sent_users is None:
+        status = False
+        raise HTTPException(status_code=404, detail="No OTP found for this user")
+
+    if otp_sent_users["OTP"] != otp:
+        status = False
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    # ตรวจสอบว่า OTP หมดอายุหรือยัง
+    if datetime.now() - otp_sent_users["datetime"] > OTP_EXPIRY_TIME:
+        status = False
+        raise HTTPException(status_code=400, detail="OTP expired")
+
+    #save log
+    time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
+    document = {
+        "user_id" : user_id,
+        "meeting_id":meeting,
+        "OTP": otp,
+        "STATUS" : status,
+        "datetime" :datetime.now()
+    }
+    time_stamp_collection.insert_one(document)
+
+    return {"message": "OTP verified successfully"}
