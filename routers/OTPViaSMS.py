@@ -39,7 +39,7 @@ async def send_otp(id:str):
     payload = {
         "msisdn": user_profile["phone_number"] ,
         "message": message,
-        "sender": "Demo",
+        "sender": "FaceTicket",
         "force" : "corporate",
     }
     headers = {

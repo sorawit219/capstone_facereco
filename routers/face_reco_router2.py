@@ -68,7 +68,7 @@ async def read_qr(websocket: WebSocket):
 
 #read face-recognition and sent otp
 @router.websocket("/face_reco+otp")
-async def face_reco(meeting:str,websocket:WebSocket):    
+async def face_reco(websocket:WebSocket):    
     await websocket.accept()
     print("WebSocket Connected!")
 
@@ -136,7 +136,7 @@ async def face_reco(meeting:str,websocket:WebSocket):
 
 #read face-recognition and qr-code
 @router.websocket("/face_reco+qr")
-async def face_reco(meeting:str,websocket:WebSocket):    
+async def face_reco(meeting:str,websocket:WebSocket):
     
     await websocket.accept()
     print("WebSocket Connected!")
@@ -152,6 +152,11 @@ async def face_reco(meeting:str,websocket:WebSocket):
             print("Error: Encoding file not found.")
             encodeListKnowWithIds = None
 
+    if encodeListKnowWithIds is None:
+        await websocket.send_text("Face encoding data not available")
+        await websocket.close()
+        return
+
     try:
         while True:
             frame_data = await websocket.receive_text()
@@ -163,7 +168,7 @@ async def face_reco(meeting:str,websocket:WebSocket):
             
             current_time = datetime.now()
 
-            # ✅ ตรวจจับ QR Code
+            #ตรวจจับ QR Code
             qr_code_text = None
             decoded_objects = decode(img)
             for obj in decoded_objects:
@@ -174,7 +179,7 @@ async def face_reco(meeting:str,websocket:WebSocket):
         
             print(string_hash)
 
-            # ✅ ตรวจจับใบหน้า
+            #ตรวจจับใบหน้า
             imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
             imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
             face_location = face_recognition.face_locations(imgS)
@@ -215,21 +220,27 @@ async def face_reco(meeting:str,websocket:WebSocket):
                 status = False
                 msg = f"User {recognized_id} Pass! But not have QR-code.Plase scan QR-code"
 
-            # ✅ เพิ่มข้อมูลลง Buffer
-            buffer.append({
+            document = {
                 "user_id": recognized_id if recognized_id else "Unknown",
                 "meeting_id": meeting,
                 "OTP": None,
                 "STATUS": status,
                 "datetime": current_time
-            })
+            }
 
-            time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]  
+            time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
+            if status:
+                time_stamp_collection.insert_one(document)
+
+            #เพิ่มข้อมูลลง Buffer
+            if status:
+                buffer.append(document)
+
             if len(buffer) >= BUFFER_LIMIT:
                 time_stamp_collection.insert_many(buffer)
                 buffer.clear() 
             
-            # ✅ ส่งผลลัพธ์กลับไปยัง Frontend
+            #ส่งผลลัพธ์กลับไปยัง Frontend
             await websocket.send_json({"msg": msg, "status": status})
 
     except WebSocketDisconnect:
@@ -258,7 +269,7 @@ async def send_otp(id:str):
     payload = {
         "msisdn": user_profile["phone_number"] ,
         "message": message,
-        "sender": "Demo",
+        "sender": "FaceTicket",
         "force" : "corporate",
     }
     headers = {
