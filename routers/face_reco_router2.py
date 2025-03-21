@@ -38,6 +38,7 @@ BUFFER_LIMIT = 5
 #read qr-code and sent otp        
 @router.websocket("/qr+otp")
 async def read_qr(websocket: WebSocket):
+    string_hash = None
     await websocket.accept()
     otp_sent_users = set()
     try:
@@ -54,14 +55,15 @@ async def read_qr(websocket: WebSocket):
                 if user_id not in otp_sent_users:
                     otp_sent_users.add(user_id)
                     otp = send_otp(user_id)  # ส่ง OTP
-                    await websocket.send_text(f"OTP sent to user {user_id}")
+                    await websocket.send_json({"msg":"OTP sent to user {user_id}","status":True})
             else:
-                await websocket.send_text("QR Code not found in database")
+                await websocket.send_json({"msg":"QR Code not found in database","status":False})
 
     except WebSocketDisconnect:
         print("WebSocket Disconnected")
     except Exception as e:
-        await websocket.send_text(f"Error: {str(e)}")
+        print(f"Error: {e}")
+        await websocket.send_json({"error": str(e)})
     finally:
         await websocket.close()
 
@@ -82,27 +84,28 @@ async def face_reco(websocket:WebSocket):
         print("Encoding file Loaded")
     except FileNotFoundError:
             print("Error: Encoding file not found.")
-            encodeListKnowWithIds = None
+            await websocket.send_json({"error": "Face encoding data not available"})
+            await websocket.close()
+            return
     
-    if encodeListKnowWithIds is None:
-        await websocket.send_text("Face encoding data not available")
-        await websocket.close()
-        return
-
     try:
         while True:
             frame_data = await websocket.receive_text()
             # แปลง Base64 เป็น OpenCV Image
-            header, encoded = frame_data.split(",", 1)            
-            img_data = base64.b64decode(encoded)
-            np_arr = np.frombuffer(img_data, np.uint8)
-            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
-            imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+            try:
+                header, encoded = frame_data.split(",", 1)            
+                img_data = base64.b64decode(encoded)
+                np_arr = np.frombuffer(img_data, np.uint8)
+                img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
+                imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+            except Exception as e:
+                await websocket.send_json({"error": "Invalid image data"})
+                continue
 
             face_location = face_recognition.face_locations(imgS)
             if not face_location:
-                await websocket.send_text("No face detected")
+                await websocket.send_json({"msg":"No Face Detect","status":True})
                 continue
             encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
 
@@ -112,12 +115,15 @@ async def face_reco(websocket:WebSocket):
                 matchIndex = np.argmin(faceDis)
 
                 if not any(matches):  # ไม่มีใบหน้าตรงกัน
-                    await websocket.send_text("Face not recognized")
+                    await websocket.send_json({"msg":"Face not recognized","status":False})
                     continue
 
                 if matches[matchIndex]:
                     recognized_id = UserId[matchIndex]
-                    name = collection.find_one({"user_id": recognized_id})["name"]
+                    user_data = collection.find_one({"user_id": recognized_id})
+                    name = user_data["name"]
+                    if name is None:
+                        name = "Unknown"
                     y1, x2, y2, x1 = faceLoc
                     y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
                     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -127,11 +133,12 @@ async def face_reco(websocket:WebSocket):
                     if recognized_id not in otp_sent_users:
                         otp_sent_users.add(recognized_id)
                         otp = send_otp(recognized_id)  # ส่ง OTP
-                        await websocket.send_text(f"OTP sent to user {recognized_id}")
+                        await websocket.send_json({"msg":"OTP sent to user {recognized_id}","status":True})
     except WebSocketDisconnect:
         print("WebSocket Disconnected")       
     except Exception as e:
         print(f"Error: {e}")
+        await websocket.send_json({"error": str(e)})
 
 
 #read face-recognition and qr-code
@@ -150,23 +157,25 @@ async def face_reco(meeting:str,websocket:WebSocket):
         print("Encoding file Loaded")
     except FileNotFoundError:
             print("Error: Encoding file not found.")
-            encodeListKnowWithIds = None
+            await websocket.send_json({"error": "Face encoding data not available"})
+            await websocket.close()
 
-    if encodeListKnowWithIds is None:
-        await websocket.send_text("Face encoding data not available")
-        await websocket.close()
-        return
 
     try:
         while True:
             frame_data = await websocket.receive_text()
             # แปลง Base64 เป็น OpenCV Image
-            header, encoded = frame_data.split(",", 1)
-            img_data = base64.b64decode(encoded)
-            np_arr = np.frombuffer(img_data, np.uint8)
-            img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            try:
+                header, encoded = frame_data.split(",", 1)
+                img_data = base64.b64decode(encoded)
+                np_arr = np.frombuffer(img_data, np.uint8)
+                img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            except Exception as e:
+                await websocket.send_json({"error": "Invalid image data"})
+                continue
             
             current_time = datetime.now()
+            string_hash = None
 
             #ตรวจจับ QR Code
             qr_code_text = None
@@ -176,7 +185,8 @@ async def face_reco(meeting:str,websocket:WebSocket):
                 sha256 = hashlib.sha256()
                 sha256.update(qr_code_text.encode("utf-8"))
                 string_hash = sha256.hexdigest()
-        
+            
+            status = False
             print(string_hash)
 
             #ตรวจจับใบหน้า
@@ -184,14 +194,14 @@ async def face_reco(meeting:str,websocket:WebSocket):
             imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
             face_location = face_recognition.face_locations(imgS)
             if not face_location:
-                await websocket.send_text("No face detected")
+                await websocket.send_json({"msg": "No face detected", "status": status})
                 continue
             encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
 
             for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
                 matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
                 if not any(matches):  # ไม่มีใบหน้าตรงกัน
-                    await websocket.send_text("Face not recognized")
+                    await websocket.send_json({"msg": "Face not match in ListKnow", "status": status})
                     continue
                 faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
                 matchIndex = np.argmin(faceDis)
@@ -200,24 +210,29 @@ async def face_reco(meeting:str,websocket:WebSocket):
                 if matches[matchIndex]:
                     recognized_id = UserId[matchIndex]
                     print(f"Known Face Detected - ID:{recognized_id}")
-                    name = collection.find_one({"user_id": recognized_id})["name"]
+                    user_data = collection.find_one({"user_id": recognized_id})
+                    name = user_data["name"]
+                    if name is None:
+                        name = "Unknown"
                     y1, x2, y2, x1 = faceLoc
                     y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
                     bbox = x1, y2-175, x2-x1, y2-y1
                     cv2.rectangle(img, bbox, (0, 255, 0), 2)
                     cv2.putText(img, name, (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                else:
+                    await websocket.send_json({"msg": "Face not recognized", "status": status})
             
-            status = False
+            msg = "Authentication failed"
+
             if recognized_id and string_hash:
                 result = collection.find_one({"text": string_hash})
                 text_id = result["user_id"]
                 if text_id == recognized_id:
                     status = True
-                    msg = f" User {recognized_id} found you have enroll this meeting"
+                    msg = f" User {recognized_id} found you have enroll this meeting Please Check in"
                 else:
                     msg = " QR Code not match User Or not enroll in this meeting "
             elif recognized_id:
-                status = False
                 msg = f"User {recognized_id} Pass! But not have QR-code.Plase scan QR-code"
 
             document = {
@@ -232,9 +247,7 @@ async def face_reco(meeting:str,websocket:WebSocket):
             if status:
                 time_stamp_collection.insert_one(document)
 
-            #เพิ่มข้อมูลลง Buffer
-            if status:
-                buffer.append(document)
+            buffer.append(document)
 
             if len(buffer) >= BUFFER_LIMIT:
                 time_stamp_collection.insert_many(buffer)
@@ -248,6 +261,7 @@ async def face_reco(meeting:str,websocket:WebSocket):
 
     except Exception as e:
         print(f"Error: {e}")
+        await websocket.send_json({"error": str(e)})
 
 
 
