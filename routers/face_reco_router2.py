@@ -3,18 +3,13 @@ import pickle
 import cv2
 import face_recognition
 import numpy as np
-import asyncio
 from pymongo import MongoClient
 from pyzbar.pyzbar import decode
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 import requests
 import math
 import random
-from fastapi.responses import FileResponse
-import urllib
-import shutil
-import uuid
 from dotenv import load_dotenv
 import os
 import base64
