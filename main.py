@@ -5,18 +5,16 @@ from routers.face_reco_router2 import router as face_reco_router
 from routers import Enroll as enroll
 from routers import place,meeting,OTPViaSMS
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-import os
 
 app = FastAPI()
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["http://localhost:4200"],  # ใส่ URL ของ Angular App
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],  # อนุญาตทุก Methods เช่น GET, POST
+    allow_headers=["*"],  # อนุญาตทุก Headers
 )
 
 
