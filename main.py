@@ -24,7 +24,7 @@ def root ():
 
 def config_rounter():
     app.include_router(users.router)
-    app.include_router(face_reco_router)
+    #app.include_router(face_reco_router)
     app.include_router(enroll.router)
     app.include_router(place.router)
     app.include_router(meeting.router)
