@@ -4,19 +4,20 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from fastapi import UploadFile,File,HTTPException
 from fastapi.responses import FileResponse
-from pymongo import MongoClient
-from gridfs import GridFS
 from typing import List
 from datetime import datetime
 import os
+from typing import Optional
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+from bson import ObjectId
 from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize MongoDB client
-client = MongoClient(os.getenv('MONGODB_URL'))
+client = AsyncIOMotorClient(os.getenv('MONGODB_URL'))
 db = client[os.getenv('DATABASE_NAME')]
 collection_name = db["meeting"]
-fs = GridFS(db)
+fs = AsyncIOMotorGridFSBucket(db)
 
 
 router = APIRouter(
@@ -31,7 +32,8 @@ router = APIRouter(
 
 class Meeting(BaseModel):
     name : str
-    user_create: str
+    user_create_id: str
+    user_create:str
     description :str
     start_datetime:datetime
     end_datetime:datetime
@@ -44,13 +46,15 @@ class Meeting(BaseModel):
 
 
 @router.post("/{id}")
-async def create_meeting(meeting: Meeting,place:str):
+async def create_meeting(user_id: str ,meeting: Meeting,place_id : Optional[str] = None):
+    
     try:
         new_meeting = Meeting(
             name=meeting.name,
+            user_create_id=user_id,
             user_create=meeting.user_create,
             description=meeting.description,
-            place_id=place,
+            place_id = place_id,
             start_datetime=meeting.start_datetime,
             end_datetime=meeting.end_datetime,
             enrolled_users= meeting.enrolled_users
@@ -67,19 +71,34 @@ async def create_meeting(meeting: Meeting,place:str):
 @router.get("/")
 async def get_meeting_id_from_name(name: str):
     try:
-        result = await collection_name.find_one({"name": name}, {"_id": 1})
-        if result:
-            obj_id = result["_id"]
-            return {"msg": "Found Object!!", "ID": str(obj_id)}
-        else:
-            raise HTTPException(status_code=404, detail="No document found with the specified name")
+        result = await collection_name.find_one({"name": name}, projection={"_id": 1},max_time_ms=2000)
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="No document found with the specified name"
+            )
+            
+        return {
+            "msg": "Found Object!",
+            "ID": str(result["_id"])
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get object ID: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error: {e}"
+        )
 
 @router.post("/{meet_id}/upload")
 async def upload_meeting_picture(meet_id:str,files : List[UploadFile]=File(...)):
     try:
-        collection = db["meeting_picture"]
+        try:
+            meeting_obj_id = ObjectId(meet_id)
+        except:
+            raise HTTPException(status_code=400, detail="Invalid meeting ID format")
+
+        collection_meeting_picture = db[os.getenv('COLLECTION_MEETING_PICTURE')]
+        #fs = AsyncIOMotorGridFSBucket(db)
+
         file_data = []
         for file in files:
             picture_contents = await file.read()
@@ -88,7 +107,7 @@ async def upload_meeting_picture(meet_id:str,files : List[UploadFile]=File(...))
                 "filename": file.filename,
                 "image_data": picture_contents
             })
-        result = await collection.insert_many(file_data)
+        result = await collection_meeting_picture.insert_many(file_data)
         if result:
             return {"msg": "Upload Complete", "count": len(result.inserted_ids)}
         else:
