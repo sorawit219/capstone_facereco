@@ -47,20 +47,22 @@ async def create_place(place: Place):
         else:
             raise HTTPException(status_code=500, detail="Failed to create place")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create place: {e}")
+        # Properly format the error message to be string-friendly
+        error_msg = str(e)
+        raise HTTPException(status_code=500, detail=f"Failed to create place: {error_msg}")
     
 @router.get("/")
 async def get_place_id_from_name(name: str):
     try:
-        
-        #obj_id = ObjectId(_id)
-        result = collection_name.find_one({},{"name": name})
+        # Fixed query syntax - was incorrectly using {}, {"name": name}
+        result = collection_name.find_one({"name": name}, {"_id": 1})
         if result:
-            return {"msg": result}
+            return {"msg": "Found Place!", "ID": str(result["_id"])}
         else:
-            raise HTTPException(status_code=404, detail="No document found with the specified name")
+            raise HTTPException(status_code=404, detail="No place found with the specified name")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get object ID: {e}")
+        error_msg = str(e)
+        raise HTTPException(status_code=500, detail=f"Failed to get place ID: {error_msg}")
 
 @router.post("/{place_id}/upload")
 async def upload_place_picture(place_id:str,files : List[UploadFile]=File(...)):
@@ -85,22 +87,36 @@ async def upload_place_picture(place_id:str,files : List[UploadFile]=File(...)):
 @router.get("/{place_id}/getImage")
 async def download_place_picture(place_id: str):
     try:
+        # Validate place_id format
         if not ObjectId.is_valid(place_id):
-            raise HTTPException(status_code=404, detail="No images found for the specified place ID")
+            raise HTTPException(status_code=400, detail="Invalid place ID format")
+            
         collection = db["place_picture"]
-        files = collection.find({"place_id": place_id})
+        image_documents = list(collection.find({"place_id": place_id}))
         
-        if files.count() == 0:
-              raise HTTPException(status_code=404, detail="No files found for this place_id")
+        if not image_documents:
+            raise HTTPException(status_code=404, detail="No images found for the specified place ID")
         
-        async def stream_files():
-            for file in files:
-                yield file["image_data"]
+        foldermodepath = 'all_img/place_img'
+        if not os.path.exists(foldermodepath):
+            os.makedirs(foldermodepath)
 
-        # Return a StreamingResponse with the streamed files
-        return StreamingResponse(stream_files(), media_type="application/octet-stream")
+        file_paths = []
+        for image_document in image_documents:
+            image_name = image_document["filename"]
+            image_data = image_document["image_data"]
+            file_path = os.path.join(foldermodepath, f"{place_id}_{image_name}")
+            with open(file_path, "wb") as f:
+                f.write(image_data)
+            file_paths.append(file_path)
 
-
-        
+        # Return file response for the first image if there are any
+        if file_paths:
+            return StreamingResponse(open(file_paths[0], "rb"), media_type="image/*")
+        else:
+            raise HTTPException(status_code=404, detail="No images found after processing")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to download images: {e}")
+        error_msg = str(e)
+        raise HTTPException(status_code=500, detail=f"Failed to download images: {error_msg}")

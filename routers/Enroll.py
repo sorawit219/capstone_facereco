@@ -100,6 +100,27 @@ def search_enrollment(user_id:str):
         result.append(post)
     return result
 
+@router.get("/u_id/{creator_id}")
+async def get_enrollments_by_creator(creator_id: str):
+    try:
+        # Find all enrollments where user_id matches the creator_id
+        result = []
+        enrollments = collection_name.find({"user_id": creator_id})
+        
+        # Convert MongoDB documents to JSON serializable format
+        for enrollment in enrollments:
+            # Convert ObjectId to string and binary data to base64 if needed
+            enrollment["_id"] = str(enrollment["_id"])
+            if "qrcode" in enrollment and isinstance(enrollment["qrcode"], bytes):
+                enrollment["qrcode"] = "binary_data"  # Replace binary data with placeholder
+            
+            result.append(enrollment)
+            
+        return result
+    except Exception as e:
+        logging.error(f"Error fetching enrollments for creator {creator_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch enrollments: {str(e)}")
+
 @router.post("/{id}")
 async def create_enrollment(id:str,meet_id:str,choice:int):#face+otp =1 , face+qr=2, qr+top = 3
     
