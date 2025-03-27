@@ -162,12 +162,12 @@ async def face_reco(websocket:WebSocket):
                 imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
                 imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
             except Exception as e:
-                await websocket.send_json({"error": "Invalid image data"})
+                await websocket.send_json({"error": "Invalid image data","status":False})
                 continue
 
             face_location = face_recognition.face_locations(imgS)
             if not face_location:
-                await websocket.send_json({"msg":"No Face Detect","status":True})
+                await websocket.send_json({"msg":"No Face Detect","status":False})
                 continue
             encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
 
