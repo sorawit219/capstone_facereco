@@ -404,8 +404,7 @@ async def send_otp(id:str):
     payload = {
         "msisdn": user_profile["phone_number"] ,
         "message": message,
-        "sender": "FaceTicket",
-        "force" : "corporate",
+        "sender": "Demo",
     }
     headers = {
         "accept": "application/json",
