@@ -64,6 +64,7 @@ async def read_qr(websocket: WebSocket):
 
 
 #read face-recognition and sent otp
+'''
 @router.websocket("/face_reco+otp")
 async def face_reco(websocket:WebSocket):    
     await websocket.accept()
@@ -134,6 +135,131 @@ async def face_reco(websocket:WebSocket):
     except Exception as e:
         print(f"Error: {e}")
         await websocket.send_json({"error": str(e)})
+'''
+#read face-recognition and sent otp
+@router.websocket("/face_reco+otp")
+async def face_reco(websocket: WebSocket):    
+    await websocket.accept()
+    print("WebSocket Connected!")
+
+    global encodeListKnow
+    otp_sent_users = set()  # Track users who've received OTPs
+        
+    try:
+        with open("EncodeFile.p", 'rb') as file:
+            encodeListKnowWithIds = pickle.load(file)
+            encodeListKnow, UserId = encodeListKnowWithIds
+        print("Encoding file Loaded")
+    except FileNotFoundError:
+        print("Error: Encoding file not found.")
+        await websocket.send_json({"error": "Face encoding data not available"})
+        await websocket.close()
+        return
+    
+    try:
+        while True:
+            frame_data = await websocket.receive_text()
+            
+            # Convert Base64 to OpenCV Image
+            try:
+                header, encoded = frame_data.split(",", 1)            
+                img_data = base64.b64decode(encoded)
+                np_arr = np.frombuffer(img_data, np.uint8)
+                img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
+                imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+            except Exception as e:
+                await websocket.send_json({"error": "Invalid image data", "details": str(e)})
+                continue
+
+            face_location = face_recognition.face_locations(imgS)
+            if not face_location:
+                await websocket.send_json({
+                    "status": "no_face",
+                    "message": "No face detected",
+                    "action": "continue"
+                })
+                continue
+                
+            encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
+            if not encodeCurFrame:
+                await websocket.send_json({
+                    "status": "no_encoding",
+                    "message": "Could not extract face features",
+                    "action": "continue"
+                })
+                continue
+
+            for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
+                matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
+                faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
+                matchIndex = np.argmin(faceDis)
+
+                if not any(matches):
+                    await websocket.send_json({
+                        "status": "unrecognized",
+                        "message": "Face not recognized",
+                        "action": "continue"
+                    })
+                    continue
+
+                if matches[matchIndex]:
+                    recognized_id = UserId[matchIndex]
+                    user_data = collection.find_one({"user_id": recognized_id})
+                    if not user_data:
+                        await websocket.send_json({
+                            "status": "error",
+                            "message": "User data not found",
+                            "action": "continue"
+                        })
+                        continue
+                        
+                    name = user_data.get("name", "Unknown")
+                    
+                    # Draw face rectangle
+                    y1, x2, y2, x1 = faceLoc
+                    y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(img, name, (x1 + 6, y2 - 6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                    
+                    # Handle OTP
+                    if recognized_id not in otp_sent_users:
+                        otp = send_otp(recognized_id)
+                        if otp:  # If OTP was successfully sent
+                            otp_sent_users.add(recognized_id)
+                            await websocket.send_json({
+                                "status": "otp_sent",
+                                "message": f"OTP sent to user {recognized_id}",
+                                "user_id": recognized_id,
+                                "name": name,
+                                "action": "verify_otp"
+                            })
+                        else:
+                            await websocket.send_json({
+                                "status": "error",
+                                "message": "Failed to send OTP",
+                                "action": "continue"
+                            })
+                    else:
+                        await websocket.send_json({
+                            "status": "pending_verification",
+                            "message": f"OTP already sent to {name}",
+                            "user_id": recognized_id,
+                            "action": "verify_otp"
+                        })
+
+    except WebSocketDisconnect:
+        print("WebSocket Disconnected")
+    except Exception as e:
+        print(f"Error: {e}")
+        await websocket.send_json({
+            "status": "error",
+            "message": "An unexpected error occurred",
+            "details": str(e)
+        })
+    finally:
+        await websocket.close()
+
 
 
 #read face-recognition and qr-code
