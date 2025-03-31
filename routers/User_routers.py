@@ -206,7 +206,7 @@ def encode_pickel():
 
     imgLIst_a = []  # Array of images
     studentIds = []
-    collection = db["user_picture"]
+    collection = db[os.getenv('COLLECTION_USER_PICTURE')]
     image_documents = collection.find()
 
     for image_document in image_documents:
