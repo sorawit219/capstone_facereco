@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from fastapi import UploadFile,File,HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pymongo import MongoClient
 from gridfs import GridFS
 import os
@@ -11,6 +11,7 @@ import math
 import cv2
 import pickle
 import face_recognition
+from bson.binary import Binary
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -107,33 +108,37 @@ async def update_user(id:str,field_update: str, to_new_value: str):
 
 
 @router.post("/{id}/upload")
-async def upload_user_picture(id:str,file : UploadFile=File(...)):
-    picture_contents = await file.read() #read file
-    file_name, file_extension = os.path.splitext(file.filename)
-    new_filename = f"{id}{file_extension}"
-    with open(new_filename, "wb") as new_file:
-        new_file.write(picture_contents)
-    collection = db["user_picture"]
-    image_document = {
-        "user_id": id,
-        "filename": new_filename,
-        "file_extension": file_extension,
-        "image_data": picture_contents
-    }
-    collection.insert_one(image_document)
-    new_file.close
-    encode_pickel()
-    return {"msg":"Upload and Encode Complete"}
+async def upload_user_picture(id:str,file : UploadFile=File()):
+    try:
+        picture_contents = await file.read() #read file
+        file_name, file_extension = os.path.splitext(file.filename)
+        new_filename = f"{id}{file_extension}"
+        with open(new_filename, "wb") as new_file:
+            new_file.write(picture_contents)
+        collection_user_picture = db[os.getenv('COLLECTION_USER_PICTURE')]
+        image_document = {
+            "user_id": id,
+            "filename": new_filename,
+            "file_extension": file_extension,
+            "image_data": Binary(picture_contents)
+        }
+        collection_user_picture.insert_one(image_document)
+        new_file.close
+        encode_pickel()
+        return {"msg":"Upload and Encode Complete"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File upload failed: {e}")
+
 
 @router.get("/{id}/getImage")
 async def download_user_picture(id:str):
-    collection = db["user_picture"]
-    image_document = collection.find_one({"user_id": id})
-    image_name = image_document["filename"]
-    image_data = image_document["image_data"]
-    foldermodepath = 'lall_img\img_file'
-    path = f"{foldermodepath}\{image_name}"
-    return FileResponse(path)
+    collection_user_picture = db[os.getenv('COLLECTION_USER_PICTURE')]
+    image_document = collection_user_picture.find_one({"user_id": id})
+    if image_document:
+        return Response(content=image_document["image_data"], media_type="image/jpeg")
+    else:
+        raise HTTPException(status_code=404, detail="Image not found")
+
 
 def findEncodeing(imgLIst):
     encodeList= []
@@ -161,7 +166,7 @@ def encode_pickel():
             imgLIst_a.append(cv2.imread(os.path.join(foldermodepath,filename)))
             studentIds.append(os.path.splitext(filename)[0])#print list numberpath
 
-    f.close
+    f.close()
         
     print(studentIds) #img name not png
     print("Encoding Started...")
