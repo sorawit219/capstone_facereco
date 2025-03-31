@@ -139,7 +139,48 @@ async def download_user_picture(id:str):
     else:
         raise HTTPException(status_code=404, detail="Image not found")
 
+'''
+def findEncodeing(imgLIst):
+    encodeList= []
+    for img in imgLIst:
+        img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+        encode = face_recognition.face_encodings(img)
+        if encode:  # If at least one face encoding is found
+            encodeList.append(encode[0])
+        else:
+            print("⚠️ Warning: No face detected in one image. Skipping.")
+    return encodeList
 
+
+def encode_pickel():
+    #import img to the list
+    foldermodepath = 'lall_img\img_file'
+    pathlis = os.listdir(foldermodepath)
+    print(pathlis)
+    imgLIst_a = [] #array of img
+    studentIds = []
+    collection = db["user_picture"]
+    image_documents = collection.find()
+    for image_document in image_documents:
+        filename = image_document["filename"]
+        image_data = image_document["image_data"]
+        with open(os.path.join(foldermodepath, filename), "wb") as f:
+            f.write(image_data)
+            imgLIst_a.append(cv2.imread(os.path.join(foldermodepath,filename)))
+            studentIds.append(os.path.splitext(filename)[0])#print list numberpath
+
+    f.close()
+        
+    print(studentIds) #img name not png
+    print("Encoding Started...")
+    encodeListKnow = findEncodeing(imgLIst_a)
+    encodeLIstKnowWithIds = [encodeListKnow,studentIds]
+    print("Encode Complete")
+
+    file = open("EncodeFile.p",'wb')
+    pickle.dump(encodeLIstKnowWithIds,file)
+    file.close()
+'''
 def findEncodeing(imgLIst, studentIds):
     encodeList = []
     validStudentIds = []  # Store only IDs with valid face encodings
