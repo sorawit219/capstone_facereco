@@ -144,8 +144,11 @@ def findEncodeing(imgLIst):
     encodeList= []
     for img in imgLIst:
         img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
-        encode = face_recognition.face_encodings(img)[0]
-        encodeList.append(encode)
+        encode = face_recognition.face_encodings(img)
+        if encode:  # If at least one face encoding is found
+            encodeList.append(encode[0])
+        else:
+            print("⚠️ Warning: No face detected in one image. Skipping.")
     return encodeList
 
 
