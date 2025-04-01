@@ -85,7 +85,7 @@ def generate_qr(name):
     return shuffled_data, png_content #return name of qrcode and qrcode data
     
 
-
+'''
 @router.get("/")
 def read_root():
     try:
@@ -94,7 +94,7 @@ def read_root():
     except Exception as e:
         logging.error(f"An error occurred: {str(e)}")
         raise
-
+'''
 '''
 @router.get('/{id}')
 def search_enrollment(id: str):
