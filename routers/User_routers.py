@@ -113,14 +113,14 @@ async def upload_user_picture(id:str,file : UploadFile=File(...)):
     new_filename = f"{id}{file_extension}"
     with open(new_filename, "wb") as new_file:
         new_file.write(picture_contents)
-    collection = db["user_picture"]
+    collection_user_collection = db["user_pictures"]
     image_document = {
         "user_id": id,
         "filename": new_filename,
         "file_extension": file_extension,
         "image_data": picture_contents
     }
-    collection.insert_one(image_document)
+    collection_user_collection.insert_one(image_document)
     new_file.close
     encode_pickel()
     return {"msg":"Upload and Encode Complete"}
