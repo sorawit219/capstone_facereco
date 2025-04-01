@@ -16,6 +16,10 @@ import hashlib
 from io import BytesIO
 from bson import ObjectId
 import os
+from bson.json_util import dumps
+from fastapi.responses import JSONResponse
+from bson import Binary
+import base64
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -91,14 +95,37 @@ def read_root():
         logging.error(f"An error occurred: {str(e)}")
         raise
 
-
-
+'''
 @router.get('/{id}')
-def search_enrollment(user_id:str):
-    result = []
-    for post in Enroll.find({"id":str(user_id)}):
-        result.append(post)
-    return result
+def search_enrollment(id: str):
+    results = list(collection_name.find({"user_id": id}))
+    return JSONResponse(content=dumps(results), media_type="application/json")
+'''
+@router.get('/')
+def search_enrollment(id: str):
+    try:
+        # Try to find by ObjectId
+        results = list(collection_name.find({"user_id": ObjectId(id)}))
+    except:
+        # If ObjectId doesn't work, try as a string
+        results = list(collection_name.find({"user_id": id}))
+    
+    for result in results:
+        # Convert _id to string for the response
+        result["_id"] = str(result["_id"])
+
+        # Check and decode the QR code data
+        if "qrcode" in result:
+            qrcode_data = result["qrcode"]
+            
+            # If the qrcode is stored as Binary data (BinData in MongoDB)
+            if isinstance(qrcode_data, Binary):
+                # Convert the binary data to a base64-encoded string
+                result["qrcode"] = base64.b64encode(qrcode_data).decode('utf-8')
+            else:
+                result["qrcode"] = "Invalid format for qrcode"
+                
+    return results
 
 @router.post("/{id}")
 async def create_enrollment(id:str,meet_id:str,choice:int):#face+otp =1 , face+qr=2, qr+top = 3
