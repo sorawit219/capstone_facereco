@@ -10,6 +10,7 @@ import os
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
 from bson import ObjectId
+import asyncio
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -59,7 +60,7 @@ async def create_meeting(user_id: str ,meeting: Meeting,place_id : Optional[str]
             end_datetime=meeting.end_datetime,
             enrolled_users= meeting.enrolled_users
         )
-        result = collection_name.insert_one(new_meeting.dict())
+        result = await collection_name.insert_one(new_meeting.dict())
         inserted_id = result.inserted_id
         if result.inserted_id:
             return {"msg": "Create Meeting Complete", "ID": str(inserted_id)}
@@ -87,7 +88,7 @@ async def get_meeting_id_from_name(name: str):
             status_code=500,
             detail=f"Unexpected error: {e}"
         )
-
+'''
 @router.post("/{meet_id}/upload")
 async def upload_meeting_picture(meet_id:str,files : List[UploadFile]=File(...)):
     try:
@@ -114,6 +115,43 @@ async def upload_meeting_picture(meet_id:str,files : List[UploadFile]=File(...))
             raise HTTPException(status_code=500, detail="Failed to upload pictures")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload pictures: {e}")
+'''
+
+@router.post("/{meet_id}/upload-simple")
+async def upload_meeting_picture_simple(
+    meet_id: str,
+    files: List[UploadFile] = File(...)
+):
+    try:
+        meeting_obj_id = ObjectId(meet_id)  # Validates ID format
+        
+        collection_meeting_picture = db[os.getenv('COLLECTION_MEETING_PICTURE')]
+        batch = []
+        
+        async def process_file(file: UploadFile):
+            return {
+                "meeting_id": meeting_obj_id,
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "image_data": await file.read()
+            }
+        
+        # Process files concurrently
+        batch = await asyncio.gather(*[process_file(file) for file in files])
+        
+        if not batch:
+            raise HTTPException(400, "No files provided")
+            
+        result = await collection_meeting_picture.insert_many(batch)
+        
+        return {
+            "msg": "Upload Complete",
+            "count": len(result.inserted_ids),
+            "file_ids": [str(id) for id in result.inserted_ids]
+        }
+        
+    except Exception as e:
+        raise HTTPException(500, f"Upload failed: {str(e)}")
 
 @router.get("/{meet_id}/getImage")
 async def download_meeting_picture(meet_id: str):
