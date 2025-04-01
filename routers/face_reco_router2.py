@@ -67,12 +67,15 @@ async def read_qr(websocket: WebSocket):
     try:
         while True:
             qr_data = await websocket.receive_text()  # รับข้อมูล QR Code
+            if not qr_data:
+                await websocket.send_json({"error": "Empty QR code data received"})
+                continue
             print(f"Raw QR Data: {qr_data}")
             current_time = datetime.now()
             sha256 = hashlib.sha256()
             sha256.update(qr_data.encode('utf-8'))
             string_hash = sha256.hexdigest()
-            print(f"SHA256 Hash: {string_hash}")
+            print(f"SHA256 Hash: {string_hash}") #เอา hash string ไป check ใน db
 
             # ค้นหา QR Code ในฐานข้อมูล
             result = collection.find_one({"text": string_hash})
