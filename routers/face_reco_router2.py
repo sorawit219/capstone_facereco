@@ -74,10 +74,11 @@ async def read_qr(websocket: WebSocket):
 
             # ค้นหา QR Code ในฐานข้อมูล
             result = collection.find_one({"text": string_hash})
-            status = False
-            user_id = None
-            name = "Unknown"
-            msg = "QR Code not found in database"
+            if result is None:
+                status = False
+                user_id = None
+                name = "Unknown"
+                msg = "QR Code not found in database"
             
             if result:
                 user_id = result["user_id"]
