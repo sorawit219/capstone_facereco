@@ -139,13 +139,16 @@ async def download_user_picture(id:str):
     else:
         raise HTTPException(status_code=404, detail="Image not found")
 
-
+'''
 def findEncodeing(imgLIst):
     encodeList= []
     for img in imgLIst:
         img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
-        encode = face_recognition.face_encodings(img)[0]
-        encodeList.append(encode)
+        encode = face_recognition.face_encodings(img)
+        if encode:  # If at least one face encoding is found
+            encodeList.append(encode[0])
+        else:
+            print("⚠️ Warning: No face detected in one image. Skipping.")
     return encodeList
 
 
@@ -177,3 +180,63 @@ def encode_pickel():
     file = open("EncodeFile.p",'wb')
     pickle.dump(encodeLIstKnowWithIds,file)
     file.close()
+'''
+def findEncodeing(imgLIst, studentIds):
+    encodeList = []
+    validStudentIds = []  # Store only IDs with valid face encodings
+
+    for img, student_id in zip(imgLIst, studentIds):
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        encode = face_recognition.face_encodings(img)
+
+        if encode:  # If at least one face encoding is found
+            encodeList.append(encode[0])
+            validStudentIds.append(student_id)  # Only keep IDs for images with faces
+        else:
+            print(f"⚠️ Warning: No face detected in {student_id}. Skipping.")
+
+    return encodeList, validStudentIds
+
+
+def encode_pickel():
+    # Import images to the list
+    foldermodepath = "lall_img/img_file"
+    pathlis = os.listdir(foldermodepath)
+    print(pathlis)
+
+    imgLIst_a = []  # Array of images
+    studentIds = []
+    collection = db[os.getenv('COLLECTION_USER_PICTURE')]
+    image_documents = collection.find()
+
+    for image_document in image_documents:
+        filename = image_document["filename"]
+        image_data = image_document["image_data"]
+        
+        img_path = os.path.join(foldermodepath, filename)
+        
+        # Save the image from database
+        with open(img_path, "wb") as f:
+            f.write(image_data)
+
+        # Load the saved image
+        img = cv2.imread(img_path)
+        if img is None:
+            print(f"⚠️ Warning: Unable to read {filename}. Skipping.")
+            continue  # Skip this image
+
+        imgLIst_a.append(img)
+        studentIds.append(os.path.splitext(filename)[0])  # Extract name without extension
+
+    print(studentIds)  # Print image names
+    print("Encoding Started...")
+
+    # Encode images
+    encodeListKnow, validStudentIds = findEncodeing(imgLIst_a, studentIds)
+    encodeLIstKnowWithIds = [encodeListKnow, validStudentIds]
+
+    print("Encode Complete")
+
+    # Save encodings to file
+    with open("EncodeFile.p", "wb") as file:
+        pickle.dump(encodeLIstKnowWithIds, file)
