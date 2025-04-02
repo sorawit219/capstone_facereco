@@ -71,6 +71,7 @@ async def read_qr(websocket: WebSocket):
                 await websocket.send_json({"error": "Empty QR code data received"})
                 continue
             print(f"Raw QR Data: {qr_data}")
+            
             clean_qr_data = qr_data.strip()
             current_time = datetime.now()
             sha256 = hashlib.sha256()
