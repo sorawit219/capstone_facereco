@@ -72,21 +72,30 @@ async def read_qr(websocket: WebSocket):
                 continue
             print(f"Raw QR Data: {qr_data}")
             
+            '''
             clean_qr_data = qr_data.strip()
-            decoded_qr_data = None
-            try:
-                decoded_bytes = base64.b64decode(clean_qr_data, validate=True)  # ถอดรหัส Base64
-                decoded_qr_data = decoded_bytes.decode('utf-8')  # แปลงเป็น string
-                print(f"✅ Decoded QR Data: {decoded_qr_data}")
-            except Exception as e:
-                print("⚠️ Not Base64 encoded, using raw data")
+            print(f"Raw QR Data: {clean_qr_data}")
 
-            current_time = datetime.now()
             sha256 = hashlib.sha256()
-            sha256.update(decoded_qr_data)
+            sha256.update(clean_qr_data.encode('utf-8'))
             string_hash = sha256.hexdigest()
             print(f"SHA256 Hash: {string_hash}") #เอา hash string ไป check ใน db
+            '''
 
+            try:
+                decoded_bytes = base64.b64decode(qr_data)                
+                decoded_text = decoded_bytes.decode('utf-8')  # ถ้าไม่ใช่ utf-8 ให้ลอง latin-1
+                print(f"✅ Decoded QR content: {decoded_text}")
+
+                 # แล้วค่อย hash
+                clean_data = decoded_text.strip()
+                sha256 = hashlib.sha256()
+                sha256.update(clean_data.encode('utf-8'))
+                string_hash = sha256.hexdigest()
+            except Exception as e:
+                print(f"❌ Failed to decode QR data: {e}")
+
+            current_time = datetime.now()
             # ค้นหา QR Code ในฐานข้อมูล
             result = collection.find_one({"text": string_hash})
             if result is None:
