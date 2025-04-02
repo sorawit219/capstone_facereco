@@ -147,7 +147,8 @@ async def create_enrollment(id:str,meet_id:str,choice:int):#face+otp =1 , face+q
             name = result["name"]# Remove leading and trailing whitespace from the name
             shuffled_data, png_content = generate_qr(name)
             sha256 = hashlib.sha256()
-            sha256.update(shuffled_data.encode('utf-8'))
+            clean_data = shuffled_data.strip()
+            sha256.update(clean_data.encode('utf-8'))
             string_hash = sha256.hexdigest()
             
             print(f"[QR GENERATION] Shuffled Data: {shuffled_data}")
