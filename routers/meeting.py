@@ -11,6 +11,9 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 load_dotenv()
+# from typing import Optional
+# from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+# from bson import ObjectId
 
 # Initialize MongoDB client
 client = MongoClient(os.getenv('MONGODB_URL'))

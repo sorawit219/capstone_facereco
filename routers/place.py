@@ -35,7 +35,8 @@ router = APIRouter(
 class Place(BaseModel):
     name : str
     user_create: str
-    Description :str
+    description :str
+    place_id : str
 
 @router.post("/")
 async def create_place(place: Place):
@@ -57,7 +58,7 @@ async def get_place_id_from_name(name: str):
         # Fixed query syntax - was incorrectly using {}, {"name": name}
         result = collection_name.find_one({"name": name}, {"_id": 1})
         if result:
-            return {"msg": "Found Place!", "ID": str(result["_id"])}
+            return {"msg": "Found Place!", "place_id": str(result["_id"])}
         else:
             raise HTTPException(status_code=404, detail="No place found with the specified name")
     except Exception as e:

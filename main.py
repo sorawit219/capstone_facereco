@@ -11,9 +11,9 @@ app = FastAPI()
 # Add CORS middleware to allow all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=["*"],  # Allow frontend origin
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
+    allow_methods=["*"],  # Allow specific methods
     allow_headers=["*"],  # Allow all headers
 )
 
@@ -31,7 +31,7 @@ def root ():
 
 def config_rounter():
     app.include_router(users.router)
-    #app.include_router(face_reco_router)
+    app.include_router(face_reco_router)
     app.include_router(enroll.router)
     app.include_router(place.router)
     app.include_router(meeting.router)

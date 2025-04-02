@@ -19,12 +19,15 @@ from typing import List, Optional
 from fastapi.responses import JSONResponse
 from bson import json_util
 import json
+import httpx
+# install
 
 load_dotenv()
 
 client = MongoClient(os.getenv('MONGODB_URL'))
 db = client[os.getenv('DATABASE_NAME')]
 collection = db[os.getenv('COLLECTION_USER_ENROLLMENT')]
+time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMP')]  # Use consistent environment variable
 
 # Global variable to track if the camera is running
 buffer = []
@@ -64,26 +67,59 @@ async def read_qr(websocket: WebSocket):
     
     string_hash = None
     otp_sent_users = set()
+    
     try:
         while True:
             qr_data = await websocket.receive_text()  # รับข้อมูล QR Code
+            if not qr_data:
+                await websocket.send_json({"error": "Empty QR code data received"})
+                continue
+            
+            # Don't log the raw QR data for security
+            # Check if the received data actually contains a QR code (not empty frames)
+            clean_qr_data = qr_data.strip()
+            if not clean_qr_data or clean_qr_data == "null" or clean_qr_data == "undefined":
+                # Skip empty frames that don't contain QR code data
+                continue
+                
             current_time = datetime.now()
+            print(f"Raw QR Data Length: {len(clean_qr_data)}, First 10 chars: {clean_qr_data[:10]}...")
             sha256 = hashlib.sha256()
-            sha256.update(qr_data.encode('utf-8'))
+            sha256.update(clean_qr_data.encode('utf-8'))
             string_hash = sha256.hexdigest()
-
+            
+            # Only log the hash if we have actual QR data
+            print(f"SHA256 Hash: {string_hash}")
+            
             # ค้นหา QR Code ในฐานข้อมูล
+            print(f"Searching for QR hash: {string_hash}")
             result = collection.find_one({"text": string_hash})
-            status = False
-            user_id = None
-            name = "Unknown"
-            msg = "QR Code not found in database"
+            
+            # Debug: If not found, let's check if any close matches exist
+            if result is None:
+                print(f"Hash not found. Checking for similar hashes in database...")
+                # Find a few sample entries to compare
+                sample_entries = list(collection.find({}, {"text": 1}).limit(3))
+                for entry in sample_entries:
+                    if "text" in entry:
+                        print(f"Sample hash in DB: {entry['text']}")
+                
+                # Try to find if the scanned QR code text exists in any form
+                sample_qr_entries = list(collection.find({"text": {"$exists": True}}).limit(5))
+                print(f"Found {len(sample_qr_entries)} entries with 'text' field")
+            
+            if result is None:
+                status = False
+                user_id = None
+                name = "Unknown"
+                msg = "QR Code not found in database"
             
             if result:
-                user_id = result["user_id"]
+                user_id = str(result["user_id"])  # Convert user_id to string
                 user_data = collection.find_one({"user_id": user_id})
                 if user_data and "name" in user_data:
-                    name = user_data["name"]
+                    # Ensure name is a string type
+                    name = str(user_data["name"]) if user_data["name"] is not None else "Unknown"
                 
                 status = True
                 msg = f"OTP sent to user {user_id}"
@@ -95,15 +131,13 @@ async def read_qr(websocket: WebSocket):
             # Record timestamp
             document = {
                 "user_id": user_id if user_id else "Unknown",
-                "name": name,
+                "name": name,  # Now guaranteed to be a string
                 "meeting_id": meeting,
                 "OTP": True if user_id else False,
                 "STATUS": status,
                 "datetime": current_time
             }
 
-            # Save to database
-            time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
             if status:
                 time_stamp_collection.insert_one(document)
 
@@ -114,7 +148,14 @@ async def read_qr(websocket: WebSocket):
                 time_stamp_collection.insert_many(buffer)
                 buffer.clear()
             
-            await websocket.send_json({"msg": msg, "status": status, "timestamp": document})
+            # Create a JSON-safe copy of the document with datetime as a string
+            json_safe_document = document.copy()
+            json_safe_document["datetime"] = document["datetime"].isoformat()
+
+            # Convert the document to a JSON-serializable format using json_util
+            serializable_timestamp = json.loads(json_util.dumps(json_safe_document))
+
+            await websocket.send_json({"msg": msg, "status": status, "timestamp": serializable_timestamp})
 
     except WebSocketDisconnect:
         print("WebSocket Disconnected")
@@ -124,18 +165,123 @@ async def read_qr(websocket: WebSocket):
     finally:
         await websocket.close()
 
+# async def read_qr(websocket: WebSocket):
+#     string_hash = None
+#     await websocket.accept()
+#     otp_sent_users = set()
+#     try:
+#         while True:
+#             qr_data = await websocket.receive_text()  # รับข้อมูล QR Code
+#             sha256 = hashlib.sha256()
+#             sha256.update(qr_data.encode('utf-8'))
+#             string_hash = sha256.hexdigest()
+
+#             # ค้นหา QR Code ในฐานข้อมูล
+#             result = collection.find_one({"text": string_hash})
+#             if result:
+#                 user_id = result["user_id"]                
+#                 if user_id not in otp_sent_users:
+#                     otp_sent_users.add(user_id)
+#                     otp = send_otp(user_id)  # ส่ง OTP
+#                     await websocket.send_json({"msg":"OTP sent to user {user_id}","status":True})
+#             else:
+#                 await websocket.send_json({"msg":"QR Code not found in database","status":False})
+
+#     except WebSocketDisconnect:
+#         print("WebSocket Disconnected")
+#     except Exception as e:
+#         print(f"Error: {e}")
+#         await websocket.send_json({"error": str(e)})
+#     finally:
+#         await websocket.close()
+# async def read_qr(websocket: WebSocket):
+#     await websocket.accept()
+#     # Skip the verification step until we get the connection working
+#     # if not await verify_connection(websocket):
+#     #     await websocket.close(code=1008)  # Policy Violation
+#     #     return
+    
+#     # Get meeting from query parameters
+#     meeting = websocket.query_params.get("meeting", "default_meeting")
+    
+#     string_hash = None
+#     otp_sent_users = set()
+#     try:
+#         while True:
+#             qr_data = await websocket.receive_text()  # รับข้อมูล QR Code
+#             current_time = datetime.now()
+#             sha256 = hashlib.sha256()
+#             sha256.update(qr_data.encode('utf-8'))
+#             string_hash = sha256.hexdigest()
+
+#             # ค้นหา QR Code ในฐานข้อมูล
+#             result = collection.find_one({"text": string_hash})
+#             status = False
+#             user_id = None
+#             name = "Unknown"
+#             msg = "QR Code not found in database"
+            
+#             if result:
+#                 user_id = result["user_id"]
+#                 user_data = collection.find_one({"user_id": user_id})
+#                 if user_data and "name" in user_data:
+#                     name = user_data["name"]
+                
+#                 status = True
+#                 msg = f"OTP sent to user {user_id}"
+                
+#                 if user_id not in otp_sent_users:
+#                     otp_sent_users.add(user_id)
+#                     otp = await send_otp(user_id)  # ส่ง OTP
+            
+#             # Record timestamp
+#             document = {
+#                 "user_id": user_id if user_id else "Unknown",
+#                 "name": name,
+#                 "meeting_id": meeting,
+#                 "OTP": True if user_id else False,
+#                 "STATUS": status,
+#                 "datetime": current_time
+#             }
+
+#             # Save to database
+#             if status:
+#                 time_stamp_collection.insert_one(document)
+
+#             global buffer
+#             buffer.append(document)
+
+#             if len(buffer) >= BUFFER_LIMIT:
+#                 time_stamp_collection.insert_many(buffer)
+#                 buffer.clear()
+            
+#             await websocket.send_json({
+#                 "msg": msg, 
+#                 "status": status, 
+#                 "timestamp": document,
+#                 "user": {
+#                     "id": user_id,
+#                     "name": name
+#                 } if user_id else None
+#             })
+
+#     except WebSocketDisconnect:
+#         print("WebSocket Disconnected")
+#     except Exception as e:
+#         print(f"Error: {e}")
+#         await websocket.send_json({"error": str(e)})
+#     finally:
+#         await websocket.close()
+
 
 #read face-recognition and sent otp
 @router.websocket("/face_reco+otp")
-async def face_reco(websocket:WebSocket):    
+async def face_reco(websocket: WebSocket):    
     await websocket.accept()
     print("WebSocket Connected!")
 
-    # Get meeting from query parameters
-    meeting = websocket.query_params.get("meeting", "default_meeting")
-
     global encodeListKnow
-    otp_sent_users = set()
+    otp_sent_users = set()  # Track users who've received OTPs
         
     try:
         with open("EncodeFile.p", 'rb') as file:
@@ -143,17 +289,16 @@ async def face_reco(websocket:WebSocket):
             encodeListKnow, UserId = encodeListKnowWithIds
         print("Encoding file Loaded")
     except FileNotFoundError:
-            print("Error: Encoding file not found.")
-            await websocket.send_json({"error": "Face encoding data not available"})
-            await websocket.close()
-            return
+        print("Error: Encoding file not found.")
+        await websocket.send_json({"error": "Face encoding data not available"})
+        await websocket.close()
+        return
     
     try:
         while True:
             frame_data = await websocket.receive_text()
-            current_time = datetime.now()
             
-            # แปลง Base64 เป็น OpenCV Image
+            # Convert Base64 to OpenCV Image
             try:
                 header, encoded = frame_data.split(",", 1)            
                 img_data = base64.b64decode(encoded)
@@ -162,73 +307,253 @@ async def face_reco(websocket:WebSocket):
                 imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
                 imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
             except Exception as e:
-                await websocket.send_json({"error": "Invalid image data"})
+                await websocket.send_json({"error": "Invalid image data", "details": str(e)})
                 continue
 
             face_location = face_recognition.face_locations(imgS)
             if not face_location:
-                await websocket.send_json({"msg":"No Face Detect","status":True})
+                await websocket.send_json({
+                    "status": "no_face",
+                    "message": "No face detected",
+                    "action": "continue"
+                })
                 continue
+                
             encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
-
-            status = False
-            recognized_id = None
-            name = "Unknown"
-            msg = "Face not recognized"
+            if not encodeCurFrame:
+                await websocket.send_json({
+                    "status": "no_encoding",
+                    "message": "Could not extract face features",
+                    "action": "continue"
+                })
+                continue
 
             for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
                 matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
                 faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
                 matchIndex = np.argmin(faceDis)
 
-                if not any(matches):  # ไม่มีใบหน้าตรงกัน
+                if not any(matches):
+                    await websocket.send_json({
+                        "status": "unrecognized",
+                        "message": "Face not recognized",
+                        "action": "continue"
+                    })
                     continue
 
                 if matches[matchIndex]:
                     recognized_id = UserId[matchIndex]
                     user_data = collection.find_one({"user_id": recognized_id})
-                    name = user_data["name"] if user_data and "name" in user_data else "Unknown"
+                    if not user_data:
+                        await websocket.send_json({
+                            "status": "error",
+                            "message": "User data not found",
+                            "action": "continue"
+                        })
+                        continue
+                        
+                    name = str(user_data["name"]) if user_data and "name" in user_data else "Unknown"
+                    
+                    # Draw face rectangle
                     y1, x2, y2, x1 = faceLoc
                     y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
                     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     cv2.putText(img, name, (x1 + 6, y2 - 6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
                     
-                    status = True
-                    msg = f"OTP sent to user {recognized_id}"
-                    
+                    # Handle OTP
                     if recognized_id not in otp_sent_users:
-                        otp_sent_users.add(recognized_id)
-                        otp = await send_otp(recognized_id)  # ส่ง OTP
-            
-            # Record timestamp
-            document = {
-                "user_id": recognized_id if recognized_id else "Unknown",
-                "name": name,
-                "meeting_id": meeting,
-                "OTP": True if recognized_id and status else False,
-                "STATUS": status,
-                "datetime": current_time
-            }
+                        otp = await send_otp(recognized_id)
+                        if otp:  # If OTP was successfully sent
+                            otp_sent_users.add(recognized_id)
+                            await websocket.send_json({
+                                "status": "otp_sent",
+                                "message": f"OTP sent to user {recognized_id}",
+                                "user_id": recognized_id,
+                                "name": name,
+                                "action": "verify_otp"
+                            })
+                        else:
+                            await websocket.send_json({
+                                "status": "error",
+                                "message": "Failed to send OTP",
+                                "action": "continue"
+                            })
+                    else:
+                        await websocket.send_json({
+                            "status": "pending_verification",
+                            "message": f"OTP already sent to {name}",
+                            "user_id": recognized_id,
+                            "action": "verify_otp"
+                        })
 
-            # Save to database
-            time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
-            if status:
-                time_stamp_collection.insert_one(document)
-
-            global buffer
-            buffer.append(document)
-
-            if len(buffer) >= BUFFER_LIMIT:
-                time_stamp_collection.insert_many(buffer)
-                buffer.clear()
-                
-            await websocket.send_json({"msg": msg, "status": status, "timestamp": document})
-            
     except WebSocketDisconnect:
-        print("WebSocket Disconnected")       
+        print("WebSocket Disconnected")
     except Exception as e:
         print(f"Error: {e}")
-        await websocket.send_json({"error": str(e)})
+        await websocket.send_json({
+            "status": "error",
+            "message": "An unexpected error occurred",
+            "details": str(e)
+        })
+    finally:
+        await websocket.close()
+# async def face_reco(websocket: WebSocket):    
+#     await websocket.accept()
+#     print("WebSocket Connected!")
+
+#     # Get meeting from query parameters
+#     meeting = websocket.query_params.get("meeting", "default_meeting")
+
+#     global encodeListKnow
+#     otp_sent_users = set()  # Track users who've received OTPs
+        
+#     try:
+#         with open("EncodeFile.p", 'rb') as file:
+#             encodeListKnowWithIds = pickle.load(file)
+#             encodeListKnow, UserId = encodeListKnowWithIds
+#         print("Encoding file Loaded")
+#     except FileNotFoundError:
+#         print("Error: Encoding file not found.")
+#         await websocket.send_json({"error": "Face encoding data not available"})
+#         await websocket.close()
+#         return
+    
+#     try:
+#         while True:
+#             frame_data = await websocket.receive_text()
+#             current_time = datetime.now()
+            
+#             # Convert Base64 to OpenCV Image
+#             try:
+#                 header, encoded = frame_data.split(",", 1)            
+#                 img_data = base64.b64decode(encoded)
+#                 np_arr = np.frombuffer(img_data, np.uint8)
+#                 img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+#                 imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
+#                 imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+#             except Exception as e:
+#                 await websocket.send_json({
+#                     "status": "error",
+#                     "message": "Invalid image data",
+#                     "details": str(e),
+#                     "action": "continue"
+#                 })
+#                 continue
+
+#             face_location = face_recognition.face_locations(imgS)
+#             if not face_location:
+#                 await websocket.send_json({
+#                     "status": "no_face",
+#                     "message": "No face detected",
+#                     "action": "continue"
+#                 })
+#                 continue
+                
+#             encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
+#             if not encodeCurFrame:
+#                 await websocket.send_json({
+#                     "status": "no_encoding",
+#                     "message": "Could not extract face features",
+#                     "action": "continue"
+#                 })
+#                 continue
+
+#             status = False
+#             recognized_id = None
+#             name = "Unknown"
+
+#             for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
+#                 matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
+#                 faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
+#                 matchIndex = np.argmin(faceDis)
+
+#                 if not any(matches):
+#                     await websocket.send_json({
+#                         "status": "unrecognized",
+#                         "message": "Face not recognized",
+#                         "action": "continue"
+#                     })
+#                     continue
+
+#                 if matches[matchIndex]:
+#                     recognized_id = UserId[matchIndex]
+#                     user_data = collection.find_one({"user_id": recognized_id})
+#                     if not user_data:
+#                         await websocket.send_json({
+#                             "status": "error",
+#                             "message": "User data not found",
+#                             "action": "continue"
+#                         })
+#                         continue
+                        
+#                     name = str(user_data["name"]) if user_data and "name" in user_data else "Unknown"
+                    
+#                     # Draw face rectangle
+#                     y1, x2, y2, x1 = faceLoc
+#                     y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4
+#                     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+#                     cv2.putText(img, name, (x1 + 6, y2 - 6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                    
+#                     # Handle OTP
+#                     if recognized_id not in otp_sent_users:
+#                         otp = await send_otp(recognized_id)
+#                         if otp:  # If OTP was successfully sent
+#                             otp_sent_users.add(recognized_id)
+#                             status = True
+#                             await websocket.send_json({
+#                                 "status": "otp_sent",
+#                                 "message": f"OTP sent to user {recognized_id}",
+#                                 "user_id": recognized_id,
+#                                 "name": name,
+#                                 "action": "verify_otp"
+#                             })
+#                         else:
+#                             await websocket.send_json({
+#                                 "status": "error",
+#                                 "message": "Failed to send OTP",
+#                                 "action": "continue"
+#                             })
+#                     else:
+#                         status = True
+#                         await websocket.send_json({
+#                             "status": "pending_verification",
+#                             "message": f"OTP already sent to {name}",
+#                             "user_id": recognized_id,
+#                             "action": "verify_otp"
+#                         })
+
+#             # Record timestamp
+#             document = {
+#                 "user_id": recognized_id if recognized_id else "Unknown",
+#                 "name": name,
+#                 "meeting_id": meeting,
+#                 "OTP": True if recognized_id and status else False,
+#                 "STATUS": status,
+#                 "datetime": current_time
+#             }
+
+#             # Save to database
+#             if status:
+#                 time_stamp_collection.insert_one(document)
+
+#             global buffer
+#             buffer.append(document)
+
+#             if len(buffer) >= BUFFER_LIMIT:
+#                 time_stamp_collection.insert_many(buffer)
+#                 buffer.clear()
+
+#     except WebSocketDisconnect:
+#         print("WebSocket Disconnected")
+#     except Exception as e:
+#         print(f"Error: {e}")
+#         await websocket.send_json({
+#             "status": "error",
+#             "message": "An unexpected error occurred",
+#             "details": str(e)
+#         })
+#     finally:
+#         await websocket.close()
 
 
 #read face-recognition and qr-code
@@ -271,15 +596,19 @@ async def face_reco_qr(websocket: WebSocket):
             #ตรวจจับ QR Code
             qr_code_text = None
             decoded_objects = decode(img)
-            for obj in decoded_objects:
-                qr_code_text = obj.data.decode("utf-8")
-                sha256 = hashlib.sha256()
-                sha256.update(qr_code_text.encode("utf-8"))
-                string_hash = sha256.hexdigest()
+            # Only log and process if QR codes were actually found
+            if decoded_objects:
+                for obj in decoded_objects:
+                    qr_code_text = obj.data.decode("utf-8")
+                    sha256 = hashlib.sha256()
+                    sha256.update(qr_code_text.encode("utf-8"))
+                    string_hash = sha256.hexdigest()
+                    # Log the hash only when a QR code is detected
+                    print(f"SHA256 Hash: {string_hash}")
+                    break  # Just use the first QR code detected
             
             status = False
-            print(string_hash)
-
+            
             #ตรวจจับใบหน้า
             imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
             imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
@@ -289,6 +618,8 @@ async def face_reco_qr(websocket: WebSocket):
                 continue
             encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
 
+            recognized_id = None
+            name = "Unknown"
             for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
                 matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
                 if not any(matches):  # ไม่มีใบหน้าตรงกัน
@@ -297,14 +628,11 @@ async def face_reco_qr(websocket: WebSocket):
                 faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
                 matchIndex = np.argmin(faceDis)
 
-                recognized_id = None
                 if matches[matchIndex]:
                     recognized_id = UserId[matchIndex]
                     print(f"Known Face Detected - ID:{recognized_id}")
                     user_data = collection.find_one({"user_id": recognized_id})
-                    name = user_data["name"]
-                    if name is None:
-                        name = "Unknown"
+                    name = str(user_data["name"]) if user_data and "name" in user_data else "Unknown"
                     y1, x2, y2, x1 = faceLoc
                     y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
                     bbox = x1, y2-175, x2-x1, y2-y1
@@ -317,24 +645,27 @@ async def face_reco_qr(websocket: WebSocket):
 
             if recognized_id and string_hash:
                 result = collection.find_one({"text": string_hash})
-                text_id = result["user_id"]
-                if text_id == recognized_id:
-                    status = True
-                    msg = f" User {recognized_id} found you have enroll this meeting Please Check in"
-                else:
-                    msg = " QR Code not match User Or not enroll in this meeting "
+                try:
+                    text_id = result["user_id"]
+                    if text_id == recognized_id:
+                        status = True
+                        msg = f" User {recognized_id} found you have enroll this meeting Please Check in"
+                    else:
+                        msg = " QR Code not match User Or not enroll in this meeting "
+                except:
+                    msg = "QR Code not found in database"
             elif recognized_id:
                 msg = f"User {recognized_id} Pass! But not have QR-code.Plase scan QR-code"
 
             document = {
                 "user_id": recognized_id if recognized_id else "Unknown",
+                "name": name,
                 "meeting_id": meeting,
                 "OTP": None,
                 "STATUS": status,
                 "datetime": current_time
             }
 
-            time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
             if status:
                 time_stamp_collection.insert_one(document)
 
@@ -344,8 +675,19 @@ async def face_reco_qr(websocket: WebSocket):
                 time_stamp_collection.insert_many(buffer)
                 buffer.clear() 
             
+            # Create a JSON-safe copy of the document with datetime as a string
+            json_safe_document = document.copy()
+            json_safe_document["datetime"] = document["datetime"].isoformat()
+            
             #ส่งผลลัพธ์กลับไปยัง Frontend
-            await websocket.send_json({"msg": msg, "status": status})
+            await websocket.send_json({
+                "msg": msg, 
+                "status": status,
+                "user": {
+                    "id": recognized_id,
+                    "name": name
+                } if recognized_id else None
+            })
 
     except WebSocketDisconnect:
         print("WebSocket Disconnected")
@@ -390,9 +732,6 @@ async def get_timestamps_by_meeting(meeting_id: str,
         query_filter = {"meeting_id": meeting_id}
         if status is not None:
             query_filter["STATUS"] = status
-        
-        # Get the collection
-        time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
         
         # Execute the query with sorting and pagination
         cursor = time_stamp_collection.find(query_filter)\
@@ -452,9 +791,6 @@ async def get_timestamps_by_user(user_id: str,
         if status is not None:
             query_filter["STATUS"] = status
         
-        # Get the collection
-        time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
-        
         # Execute the query with sorting and pagination
         cursor = time_stamp_collection.find(query_filter)\
                                    .sort(sort_by, sort_order)\
@@ -491,8 +827,6 @@ async def get_meetings_list():
     - List of meetings with stats like total check-ins and unique users
     """
     try:
-        time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMPS')]
-        
         # Use aggregation to group by meeting_id and get statistics
         pipeline = [
             # Group by meeting_id and calculate statistics
@@ -539,33 +873,47 @@ async def get_meetings_list():
         raise HTTPException(status_code=500, detail=f"Error retrieving meetings: {str(e)}")
 
 async def send_otp(id:str):
-    url = "https://api-v2.thaibulksms.com/sms"
-    collection_name = db["profiles"]
-    user_profile = collection_name.find_one({"id":str(id)})
-    rand = rand_num()
-    message = "Your OTP is "+str(rand)
-    payload = {
-        "msisdn": user_profile["phone_number"] ,
-        "message": message,
-        "sender": "FaceTicket",
-        "force" : "corporate",
-    }
-    headers = {
-        "accept": "application/json",
-        "content-type": "application/x-www-form-urlencoded",
-        "authorization": os.getenv('API_KEY')
-    }
+    try:
+        # Make HTTP request to OTPViaSMS endpoint
+        async with httpx.AsyncClient() as client:
+            response = await client.post(f"http://localhost:8000/otp/send", params={"id": id})
+            if response.status_code == 200:
+                print(f"OTP sent successfully to user {id}")
+                return True
+            else:
+                print(f"Failed to send OTP to user {id}. Status code: {response.status_code}")
+                return False
+    except Exception as e:
+        print(f"Error sending OTP: {str(e)}")
+        return False
+    # url = "https://api-v2.thaibulksms.com/sms"
+    # collection_name = db["profiles"]
+    # user_profile = collection_name.find_one({"id":str(id)})
+    # rand = rand_num()
+    # message = "Your OTP is "+str(rand)
+    # payload = {
+    #     "msisdn": user_profile["phone_number"] ,
+    #     "message": message,
+    #     "sender": "Demo",
+    #     # FaceTicket
+    #     # "force" : "corporate",
+    # }
+    # headers = {
+    #     "accept": "application/json",
+    #     "content-type": "application/x-www-form-urlencoded",
+    #     "authorization": os.getenv('API_KEY')
+    # }
 
-    #have 3 user token free per api key for this api therefore can sent 3 time use carefully if want to sent more pay it
+    # #have 3 user token free per api key for this api therefore can sent 3 time use carefully if want to sent more pay it
 
-    response = requests.post(url, data=payload, headers=headers)
-    collection_store_otp = db[os.getenv('COLLECTION_USER_OTP')]
-    x = datetime.now()
-    document = {
-        "user_id" : id,
-        "OTP" : str(rand),
-        "datetime" : x
-    }
-    check = collection_store_otp.insert_one(document) #save otp to database
-    print(response.text)
-    return check
+    # response = requests.post(url, data=payload, headers=headers)
+    # collection_store_otp = db[os.getenv('COLLECTION_USER_OTP')]
+    # x = datetime.now()
+    # document = {
+    #     "user_id" : id,
+    #     "OTP" : str(rand),
+    #     "datetime" : x
+    # }
+    # check = collection_store_otp.insert_one(document) #save otp to database
+    # print(response.text)
+    # return check
