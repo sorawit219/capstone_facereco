@@ -83,7 +83,7 @@ async def read_qr(websocket: WebSocket):
 
             current_time = datetime.now()
             sha256 = hashlib.sha256()
-            sha256.update(decoded_qr_data.encode('utf-8'))
+            sha256.update(decoded_qr_data)
             string_hash = sha256.hexdigest()
             print(f"SHA256 Hash: {string_hash}") #เอา hash string ไป check ใน db
 
