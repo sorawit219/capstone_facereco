@@ -73,9 +73,17 @@ async def read_qr(websocket: WebSocket):
             print(f"Raw QR Data: {qr_data}")
             
             clean_qr_data = qr_data.strip()
+            decoded_qr_data = None
+            try:
+                decoded_bytes = base64.b64decode(clean_qr_data, validate=True)  # ถอดรหัส Base64
+                decoded_qr_data = decoded_bytes.decode('utf-8')  # แปลงเป็น string
+                print(f"✅ Decoded QR Data: {decoded_qr_data}")
+            except Exception as e:
+                print("⚠️ Not Base64 encoded, using raw data")
+
             current_time = datetime.now()
             sha256 = hashlib.sha256()
-            sha256.update(clean_qr_data.encode('utf-8'))
+            sha256.update(decoded_qr_data.encode('utf-8'))
             string_hash = sha256.hexdigest()
             print(f"SHA256 Hash: {string_hash}") #เอา hash string ไป check ใน db
 
