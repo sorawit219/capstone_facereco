@@ -149,8 +149,14 @@ async def create_enrollment(id:str,meet_id:str,choice:int):#face+otp =1 , face+q
             sha256 = hashlib.sha256()
             sha256.update(shuffled_data.encode('utf-8'))
             string_hash = sha256.hexdigest()
+            
+            print(f"[QR GENERATION] Shuffled Data: {shuffled_data}")
+            print(f"[QR GENERATION] SHA256 Hash: {string_hash}")
+            
             #print("hash complete")
             enrollment = Enroll(meet_id=str(meet_id), user_id=str(id), date_time=datetime.now(), text=string_hash, qrcode=png_content.getvalue())
+           
+           
             # Insert enrollment data into the database
             result_insert = db["user_enrollments"].insert_one(enrollment.model_dump())
             #not sent email to one qr code email
