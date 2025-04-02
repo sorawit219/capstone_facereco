@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from bson import Binary
 import base64
+from routers.utils.qr_utils import rand_num, process_qr_data, generate_qr_data
 
 
 
@@ -64,26 +65,17 @@ class Qr_otp(BaseModel):
     qrcode : bytes
     text: str
 
-def rand_num():#random number
-    num = "0123456789"
-    six_digits = ""
-    for i in range(6):
-        six_digits = six_digits + num[math.floor(random.random()*10)]
-    print(six_digits)
-    return six_digits
-
 def generate_qr(name):
     try:
-        x = rand_num()  # generate number
-        qr_data = f"{x}_{name}"  # Combining random number and name
-        shuffled_data = ''.join(random.sample(qr_data.strip(" "), len(qr_data)))  # Shuffle the data after removing whitespace
+        # Use the shared function to generate QR data
+        shuffled_data = generate_qr_data(name)
         
         # Create QR code
         qr = pyqrcode.create(shuffled_data)
         
         # Create PNG in memory
         png_content = BytesIO()
-        qr.png(png_content, scale=6)  # Remove the module_drawer parameter
+        qr.png(png_content, scale=6)
         png_content.seek(0)
         
         return shuffled_data, png_content
@@ -194,10 +186,8 @@ async def create_enrollment(id: str, meet_id: str, choice: int):  # face+otp =1 
         # Generate QR code
         shuffled_data, png_content = generate_qr(name)
         
-        # Create hash
-        sha256 = hashlib.sha256()
-        sha256.update(shuffled_data.encode('utf-8'))
-        string_hash = sha256.hexdigest()
+        # Create hash using the shared utility function
+        string_hash = process_qr_data(shuffled_data)
         
         # Create enrollment document
         enrollment = Enroll(
