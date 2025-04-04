@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 import os
 import base64
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from typing import List, Optional, Dict
 from fastapi.responses import JSONResponse
 from bson import json_util
 import json
@@ -34,6 +34,9 @@ time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMP')]  # Use consistent
 # Global variable to track if the camera is running
 buffer = []
 BUFFER_LIMIT = 5
+
+# In-memory cache for active meetings
+active_meetings: Dict[str, Dict] = {}
 
 #qr code+otp
 #face_reco + otp
@@ -661,9 +664,45 @@ async def face_reco_qr(websocket: WebSocket):
     print("Face+QR WebSocket Connected!")
     
     try:
-        # Get meeting from query parameters
-        meeting = websocket.query_params.get("meeting", "default_meeting")
-        print(f"Meeting ID: {meeting}")
+        # Get meeting from query parameters and validate
+        meeting = websocket.query_params.get("meeting", "default_meeting")  # Default if not provided
+        if not meeting:
+            meeting = "default_meeting"
+            
+        print(f"Meeting ID from query params: {meeting}")
+        
+        # Find an active real meeting instead of using default_meeting
+        real_meeting_id = meeting
+        if meeting == "default_meeting" and active_meetings:
+            # Get the most recently accessed meeting that's not default_meeting
+            recent_meetings = [(m_id, data.get("last_accessed", "")) 
+                              for m_id, data in active_meetings.items()
+                              if m_id != "default_meeting"]
+            
+            if recent_meetings:
+                # Sort by last_accessed time (most recent first)
+                recent_meetings.sort(key=lambda x: x[1], reverse=True)
+                real_meeting_id = recent_meetings[0][0]
+                print(f"Using most recent active meeting: {real_meeting_id} instead of default_meeting")
+        
+        # Check if this is a valid meeting that was set up with the connect endpoint
+        if real_meeting_id not in active_meetings:
+            print(f"Warning: Meeting {real_meeting_id} not found in active meetings cache")
+            # We'll still proceed, but will add it to the cache now
+            active_meetings[real_meeting_id] = {
+                "created_at": datetime.now().isoformat(),
+                "last_accessed": datetime.now().isoformat(),
+                "is_new_meeting": True,
+                "active_users": 0,
+                "note": "Created during WebSocket connection"
+            }
+        else:
+            # Update last accessed time
+            active_meetings[real_meeting_id]["last_accessed"] = datetime.now().isoformat()
+            print(f"Using existing meeting {real_meeting_id} from cache")
+        
+        # Log meeting access
+        print(f"Face+QR WebSocket accessed for meeting: {real_meeting_id}")
         
         global encodeListKnow
         try:
@@ -676,6 +715,11 @@ async def face_reco_qr(websocket: WebSocket):
             await websocket.send_json({"error": "Face encoding data not available"})
             await websocket.close()
             return
+
+        # Track the authentication state
+        recognized_id = None
+        name = "Unknown"
+        face_detected = False
         
         while True:
             frame_data = await websocket.receive_text()
@@ -696,12 +740,100 @@ async def face_reco_qr(websocket: WebSocket):
             
             current_time = datetime.now()
             
-            # Process QR code - enhanced from qr+otp endpoint
-            string_hash = None
-            qr_match_id = None
-            decoded_objects = decode(img)
+            # Step 1: If face not yet detected, focus on face detection
+            if not face_detected:
+                imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
+                imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+                face_location = face_recognition.face_locations(imgS)
+                
+                if not face_location:
+                    await websocket.send_json({
+                        "msg": "No face detected. Please position your face for recognition.", 
+                        "status": False,
+                        "face_found": False
+                    })
+                    continue
+                    
+                encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
+                if not encodeCurFrame:
+                    await websocket.send_json({
+                        "msg": "Could not extract face features. Please try again.", 
+                        "status": False,
+                        "face_found": False
+                    })
+                    continue
+    
+                for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
+                    matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
+                    
+                    if not any(matches):
+                        await websocket.send_json({
+                            "msg": "Face not recognized in database. Please try again.", 
+                            "status": False,
+                            "face_found": False
+                        })
+                        continue
+                        
+                    faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
+                    matchIndex = np.argmin(faceDis)
+    
+                    if matches[matchIndex]:
+                        recognized_id = UserId[matchIndex]
+                        print(f"Known Face Detected - ID:{recognized_id}")
+                        user_data = collection.find_one({"user_id": recognized_id})
+                        
+                        # Ensure we get the actual name from the database
+                        if user_data and "name" in user_data and user_data["name"]:
+                            name = str(user_data["name"])
+                            print(f"Found user name: {name}")
+                        else:
+                            name = "Unknown"
+                            print("User name not found in database, using 'Unknown'")
+                            
+                        face_detected = True
+                        
+                        # Draw face rectangle
+                        y1, x2, y2, x1 = faceLoc
+                        y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
+                        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(img, name, (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
+                        
+                        # Notify the user that face is detected and to scan QR code
+                        await websocket.send_json({
+                            "msg": f"Face recognized as {name} ({recognized_id}). Please scan your QR code now.", 
+                            "status": False,
+                            "face_found": True,
+                            "user": {
+                                "id": recognized_id,
+                                "name": name
+                            }
+                        })
+                        break
+                
+                # If we haven't found a face yet, continue to next frame
+                if not face_detected:
+                    continue
             
-            if decoded_objects:
+            # Step 2: If face already detected, focus on QR code scanning
+            else:
+                # Process QR code
+                string_hash = None
+                qr_match_id = None
+                decoded_objects = decode(img)
+                
+                if not decoded_objects:
+                    await websocket.send_json({
+                        "msg": f"Face recognized as {name}. Please scan your QR code.", 
+                        "status": False,
+                        "face_found": True,
+                        "qr_found": False,
+                        "user": {
+                            "id": recognized_id,
+                            "name": name
+                        }
+                    })
+                    continue
+                
                 for obj in decoded_objects:
                     qr_code_text = obj.data.decode("utf-8")
                     string_hash = process_qr_data(qr_code_text)
@@ -715,140 +847,114 @@ async def face_reco_qr(websocket: WebSocket):
                         break  # Found a valid QR code, stop looking
                     else:
                         print(f"QR code hash not found in database: {string_hash}")
-                    break  # Just use the first QR code detected even if not in database
-            
-            # Process face recognition - enhanced from face_reco+otp endpoint
-            status = False
-            imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
-            imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
-            face_location = face_recognition.face_locations(imgS)
-            
-            if not face_location:
-                await websocket.send_json({
-                    "msg": "No face detected", 
-                    "status": status,
-                    "qr_found": True if string_hash else False
-                })
-                continue
                 
-            encodeCurFrame = face_recognition.face_encodings(imgS, face_location)
-            if not encodeCurFrame:
-                await websocket.send_json({
-                    "msg": "Could not extract face features", 
-                    "status": status,
-                    "qr_found": True if string_hash else False
-                })
-                continue
-
-            recognized_id = None
-            name = "Unknown"
-            
-            for encodeFace, faceLoc in zip(encodeCurFrame, face_location):
-                matches = face_recognition.compare_faces(encodeListKnow, encodeFace)
-                
-                if not any(matches):
+                if not string_hash:
                     await websocket.send_json({
-                        "msg": "Face not recognized in database", 
-                        "status": status,
-                        "qr_found": True if string_hash else False
+                        "msg": "QR code not detected. Please scan your QR code.", 
+                        "status": False,
+                        "face_found": True,
+                        "qr_found": False,
+                        "user": {
+                            "id": recognized_id,
+                            "name": name
+                        }
                     })
                     continue
-                    
-                faceDis = face_recognition.face_distance(encodeListKnow, encodeFace)
-                matchIndex = np.argmin(faceDis)
-
-                if matches[matchIndex]:
-                    recognized_id = UserId[matchIndex]
-                    print(f"Known Face Detected - ID:{recognized_id}")
-                    user_data = collection.find_one({"user_id": recognized_id})
-                    name = str(user_data["name"]) if user_data and "name" in user_data else "Unknown"
-                    
-                    # Draw face rectangle
-                    y1, x2, y2, x1 = faceLoc
-                    y1, x2, y2, x1 = y1*4, x2*4, y2*4, x1*4
-                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(img, name, (x1+6, y2-6), cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2)
-            
-            # Determine authentication status and message
-            msg = "Authentication failed"
-
-            if recognized_id and string_hash:
-                if qr_match_id:
-                    if qr_match_id == recognized_id:
-                        status = True
-                        msg = f"User {recognized_id} authenticated successfully. You are checked in."
-                        
-                        # Record the successful authentication
-                        document = {
-                            "user_id": recognized_id,
-                            "name": name,
-                            "meeting_id": meeting,
-                            "OTP": None,  # No OTP for this endpoint
-                            "STATUS": status,
-                            "datetime": current_time
+                
+                if not qr_match_id:
+                    await websocket.send_json({
+                        "msg": "QR code not registered in the system.", 
+                        "status": False,
+                        "face_found": True,
+                        "qr_found": True,
+                        "user": {
+                            "id": recognized_id,
+                            "name": name
                         }
-                        
-                        # Insert individual record immediately
-                        time_stamp_collection.insert_one(document)
-                        print(f"Recorded timestamp for user {recognized_id}")
-                        
-                        # Send response and close connection
-                        await websocket.send_json({
-                            "msg": msg, 
-                            "status": status,
-                            "user": {
-                                "id": recognized_id,
-                                "name": name
-                            }
-                        })
-                        
-                        print("Match found, closing WebSocket connection")
-                        await websocket.close()
-                        return  # Exit the function completely
+                    })
+                    continue
+                
+                # Step 3: If both face and QR code are detected, check if they match
+                if qr_match_id == recognized_id:
+                    status = True
+                    msg = f"User {recognized_id} authenticated successfully. You are checked in."
+                    
+                    # Get current time in UTC for timestamp
+                    current_time = datetime.utcnow()
+                    
+                    # Use the real meeting ID we determined earlier
+                    print(f"Using meeting ID for timestamp: {real_meeting_id}")
+                    
+                    # Ensure we have the correct user name
+                    user_data = collection.find_one({"user_id": recognized_id})
+                    actual_name = "Unknown"
+                    if user_data and "name" in user_data and user_data["name"]:
+                        actual_name = str(user_data["name"])
+                        print(f"Using name for timestamp: {actual_name}")
                     else:
-                        msg = f"QR code ({qr_match_id}) does not match recognized face ({recognized_id})"
-                        print(f"User mismatch: Face ID={recognized_id}, QR ID={qr_match_id}")
+                        print("Name not found in database, using 'Unknown' in timestamp")
+                    
+                    # Create timestamp in exact format requested
+                    document = {
+                        "user_id": str(recognized_id),  # Ensure user_id is a string
+                        "name": actual_name,  # Use the verified name from the database
+                        "meeting_id": real_meeting_id,  # Use the REAL meeting ID from active meetings
+                        "OTP": None,  # Explicitly set to null for this endpoint
+                        "STATUS": True,  # Boolean true
+                        "datetime": current_time  # MongoDB will store as ISODate
+                    }
+                    
+                    # Log the exact document we're inserting for debugging
+                    print(f"Inserting timestamp document: {document}")
+                    
+                    # Insert individual record into MongoDB
+                    try:
+                        result = time_stamp_collection.insert_one(document)
+                        print(f"Recorded timestamp for user {recognized_id} with _id: {result.inserted_id}")
+                    except Exception as e:
+                        print(f"Error inserting timestamp: {e}")
+                    
+                    # Update active users count in the meeting cache
+                    if real_meeting_id in active_meetings:
+                        active_meetings[real_meeting_id]["active_users"] = active_meetings[real_meeting_id].get("active_users", 0) + 1
+                        active_meetings[real_meeting_id]["last_checkin"] = current_time.isoformat()
+                    
+                    # Create a JSON-safe copy of the document with datetime as a string for the client
+                    json_safe_document = document.copy()
+                    json_safe_document["datetime"] = document["datetime"].isoformat()
+                    
+                    # Convert document for response
+                    serializable_timestamp = json.loads(json_util.dumps(json_safe_document))
+                    
+                    # Send response and close connection
+                    await websocket.send_json({
+                        "msg": msg, 
+                        "status": status,
+                        "face_found": True,
+                        "qr_found": True,
+                        "timestamp": serializable_timestamp,
+                        "user": {
+                            "id": recognized_id,
+                            "name": name
+                        }
+                    })
+                    
+                    print("Match found, closing WebSocket connection")
+                    await websocket.close()
+                    return  # Exit the function completely
                 else:
-                    msg = "QR code not registered in the system"
-            elif recognized_id:
-                msg = f"Face recognized as {name} ({recognized_id}). Please scan your QR code."
-            elif string_hash:
-                msg = "QR code scanned. Please position your face for recognition."
-            
-            # Record partial authentication for analytics
-            document = {
-                "user_id": recognized_id if recognized_id else "Unknown",
-                "name": name,
-                "meeting_id": meeting,
-                "OTP": None,  # No OTP for this endpoint
-                "STATUS": status,
-                "datetime": current_time
-            }
-
-            # Add to buffer for batch processing
-            buffer_doc = document.copy()
-            buffer.append(buffer_doc)
-
-            if len(buffer) >= BUFFER_LIMIT:
-                try:
-                    inserted_count = flush_buffer_to_db(buffer)
-                    print(f"Flushed {inserted_count} records to database")
-                    buffer.clear()
-                except Exception as e:
-                    print(f"Error flushing buffer: {e}")
-                    buffer.clear()
-            
-            # Send response to frontend
-            await websocket.send_json({
-                "msg": msg, 
-                "status": status,
-                "face_found": True if recognized_id else False,
-                "qr_found": True if string_hash else False,
-                "user": {
-                    "id": recognized_id,
-                    "name": name
-                } if recognized_id else None
-            })
+                    msg = f"QR code ({qr_match_id}) does not match recognized face ({recognized_id})"
+                    print(f"User mismatch: Face ID={recognized_id}, QR ID={qr_match_id}")
+                    await websocket.send_json({
+                        "msg": msg, 
+                        "status": False,
+                        "face_found": True,
+                        "qr_found": True,
+                        "user": {
+                            "id": recognized_id,
+                            "name": name
+                        }
+                    })
 
     except WebSocketDisconnect:
         print("WebSocket Disconnected")
@@ -1088,3 +1194,115 @@ async def test_generate_otp():
     """
     otp = generate_otp()
     return {"otp": otp}
+
+# Create a new API endpoint to validate meeting_id for face_reco+qr WebSocket
+@router.get("/meetings/{meeting_id}/connect")
+async def validate_meeting_connection(meeting_id: str):
+    """
+    Validates a meeting ID and returns connection information for the WebSocket.
+    
+    Parameters:
+    - meeting_id: ID of the meeting to connect to
+    
+    Returns:
+    - Connection information for the WebSocket
+    """
+    try:
+        # Check if meeting exists in the database
+        meeting_exists = time_stamp_collection.count_documents({"meeting_id": meeting_id}) > 0
+        
+        # Calculate active users for this meeting
+        active_users = time_stamp_collection.count_documents({
+            "meeting_id": meeting_id,
+            "STATUS": True
+        }) if meeting_exists else 0
+        
+        # Store meeting information in the cache
+        active_meetings[meeting_id] = {
+            "created_at": datetime.now().isoformat(),
+            "last_accessed": datetime.now().isoformat(),
+            "is_new_meeting": not meeting_exists,
+            "active_users": active_users,
+        }
+        
+        print(f"Stored meeting {meeting_id} in active meetings cache")
+        
+        # Create response with WebSocket connection details
+        legacy_url = f"/face_reco+qr?meeting={meeting_id}"
+        
+        return {
+            "meeting_id": meeting_id,
+            "connection": {
+                "websocket_url": legacy_url,
+                "status": "ready"
+            },
+            "is_new_meeting": not meeting_exists,
+            "active_users": active_users,
+            "message": "Meeting is ready for connections"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error validating meeting connection: {str(e)}")
+
+# Add utility endpoint to manage active meetings
+@router.get("/meetings/active")
+async def list_active_meetings():
+    """
+    Lists all currently active meetings in the cache.
+    """
+    try:
+        # Clean up old meetings (older than 24 hours)
+        clean_old_meetings()
+        
+        # Convert active_meetings to a response format
+        meetings_list = []
+        for meeting_id, data in active_meetings.items():
+            meeting_data = {
+                "meeting_id": meeting_id,
+                **data
+            }
+            meetings_list.append(meeting_data)
+        
+        # Sort by last_accessed (most recent first)
+        meetings_list.sort(key=lambda x: x.get("last_accessed", ""), reverse=True)
+        
+        return {
+            "total": len(meetings_list),
+            "meetings": meetings_list
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing active meetings: {str(e)}")
+
+# Utility function to clean up old meetings
+def clean_old_meetings(max_age_hours=24):
+    """
+    Removes meetings from the cache that are older than the specified age.
+    
+    Args:
+        max_age_hours: Maximum age in hours before a meeting is removed from the cache
+    """
+    now = datetime.now()
+    meetings_to_remove = []
+    
+    for meeting_id, data in active_meetings.items():
+        # Parse the last_accessed timestamp
+        try:
+            last_accessed = datetime.fromisoformat(data.get("last_accessed", data.get("created_at", "")))
+            age = now - last_accessed
+            
+            # If older than max_age_hours, mark for removal
+            if age.total_seconds() > (max_age_hours * 3600):
+                meetings_to_remove.append(meeting_id)
+        except (ValueError, TypeError) as e:
+            print(f"Error parsing timestamp for meeting {meeting_id}: {e}")
+            # If we can't parse the timestamp, assume it's old
+            meetings_to_remove.append(meeting_id)
+    
+    # Remove old meetings
+    for meeting_id in meetings_to_remove:
+        try:
+            del active_meetings[meeting_id]
+            print(f"Removed old meeting {meeting_id} from cache")
+        except KeyError:
+            pass
+    
+    return len(meetings_to_remove)
