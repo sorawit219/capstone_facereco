@@ -820,53 +820,97 @@ async def get_timestamps_by_meeting(meeting_id: str,
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving timestamps: {str(e)}")
 
+from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+from bson import json_util, ObjectId
+import json
+
+router = APIRouter()
+
 @router.get("/timestamps/user/{user_id}")
-async def get_timestamps_by_user(user_id: str,
-                               meeting_id: Optional[str] = None,
-                               limit: Optional[int] = Query(100, ge=1, le=1000),
-                               skip: Optional[int] = Query(0, ge=0),
-                               status: Optional[bool] = None,
-                               sort_by: Optional[str] = Query("datetime", regex="^(datetime|meeting_id|name)$"),
-                               sort_order: Optional[int] = Query(-1, ge=-1, le=1)):
+async def get_timestamps_by_user(
+    user_id: str,
+    meeting_id: Optional[str] = None,
+    limit: Optional[int] = Query(100, ge=1, le=1000),
+    skip: Optional[int] = Query(0, ge=0),
+    status: Optional[bool] = None,
+    sort_by: Optional[str] = Query("datetime", pattern="^(datetime|meeting_id|name)$"),
+    sort_order: Optional[int] = Query(-1, ge=-1, le=1),
+):
     """
-    Retrieve timestamp records for a specific user.
-    
-    Parameters:
-    - user_id: ID of the user to search for
-    - meeting_id: Optional filter for specific meeting
-    - limit: Maximum number of records to return (default: 100, max: 1000)
-    - skip: Number of records to skip (for pagination)
-    - status: Filter by authentication status (optional)
-    - sort_by: Field to sort by (datetime, meeting_id, or name)
-    - sort_order: Sort order (1 for ascending, -1 for descending)
-    
-    Returns:
-    - List of timestamp records for the user
+    Retrieve timestamp records for a specific user,
+    including meeting name and user name.
     """
     try:
-        # Create the filter
-        query_filter = {"user_id": user_id}
+        # แปลง user_id และ meeting_id เป็น ObjectId ถ้าจำเป็น
+        try:
+            user_obj_id = ObjectId(user_id)
+        except:
+            raise HTTPException(status_code=400, detail="Invalid user_id format")
+
+        match_filter = {"user_id": user_obj_id}
         if meeting_id:
-            query_filter["meeting_id"] = meeting_id
+            try:
+                match_filter["meeting_id"] = ObjectId(meeting_id)
+            except:
+                raise HTTPException(status_code=400, detail="Invalid meeting_id format")
+
         if status is not None:
-            query_filter["STATUS"] = status
-        
-        # Execute the query with sorting and pagination
-        cursor = time_stamp_collection.find(query_filter)\
-                                   .sort(sort_by, sort_order)\
-                                   .skip(skip)\
-                                   .limit(limit)
-        
-        # Count total records for this user
-        total_records = time_stamp_collection.count_documents(query_filter)
-        
-        # Convert MongoDB cursor to a list
+            match_filter["STATUS"] = status
+
+        pipeline = [
+                {"$match": match_filter},
+
+            # Join users (string-to-string)
+        {
+            "$lookup": {
+                "from": "profiles",
+                "localField": "user_id",
+                "foreignField": "id",
+                "as": "user_info"
+            }
+        },
+        {"$unwind": {"path": "$user_info", "preserveNullAndEmptyArrays": True}},
+
+        # Join meetings using meeting_id_str (string-to-string)
+        {
+            "$lookup": {
+                "from": "meetings",
+                "localField": "meeting_id",
+                "foreignField": "meeting_id_str",  # <-- ต้องมี field นี้ใน meetings
+                "as": "meeting_info"
+            }
+        },
+        {"$unwind": {"path": "$meeting_info", "preserveNullAndEmptyArrays": True}},
+
+        # Add user_name and meeting_name fields
+        {
+            "$addFields": {
+                "user_name": "$user_info.name",
+                "meeting_name": "$meeting_info.name"
+            }
+        },
+        # Optional: Remove big joins
+        {
+            "$project": {
+                "user_info": 0,
+                "meeting_info": 0
+            }
+        },
+
+        # Sorting and pagination
+        {"$sort": {sort_by: sort_order}},
+        {"$skip": skip},
+        {"$limit": limit}
+        ]
+
+
+        cursor = time_stamp_collection.aggregate(pipeline)
         records = list(cursor)
-        
-        # Convert ObjectId and datetime to string for JSON serialization
         parsed_records = json.loads(json_util.dumps(records))
-        
-        # Return the results
+
+        total_records = time_stamp_collection.count_documents(match_filter)
+
         return {
             "total": total_records,
             "records": parsed_records,
@@ -874,9 +918,10 @@ async def get_timestamps_by_user(user_id: str,
             "skip": skip,
             "has_more": (skip + limit) < total_records
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving timestamps: {str(e)}")
+
 
 @router.get("/meetings")
 async def get_meetings_list():
