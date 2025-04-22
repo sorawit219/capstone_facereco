@@ -271,3 +271,40 @@ async def get_meeting_ids_from_user_id(user_id: str):
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get meetings: {e}")
+    
+from fastapi import Query
+
+@router.get("/search_meetings_by_name")
+async def search_meetings_by_name(
+    keyword: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=100),
+    skip: int = Query(0, ge=0)
+):
+    try:
+        query = {
+            "name": {
+                "$regex": keyword,
+                "$options": "i"  # ไม่สน case
+            }
+        }
+
+        results = collection_name.find(query).skip(skip).limit(limit)
+
+        meetings = []
+        async for doc in results:
+            meetings.append({
+                "id": str(doc["_id"]),
+                "name": doc.get("name", ""),
+                "start_datetime": doc.get("start_datetime"),
+                "end_datetime": doc.get("end_datetime"),
+                "user_create": doc.get("user_create")
+            })
+
+        return {
+            "total_found": len(meetings),
+            "meetings": meetings
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to search meetings: {e}")
+
