@@ -121,3 +121,16 @@ async def download_place_picture(place_id: str):
     except Exception as e:
         error_msg = str(e)
         raise HTTPException(status_code=500, detail=f"Failed to download images: {error_msg}")
+    
+
+@router.get("/id_from_name/{name}")
+async def get_meeting_id_from_name(name: str):
+    try:
+        result = collection_name.find_one({"name": name}, {"_id": 1})
+        if result:
+            obj_id = result["_id"]
+            return {"msg": "Found Meeting!", "ID": str(obj_id)}
+        else:
+            raise HTTPException(status_code=404, detail="No meeting found with the specified name")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get meeting ID: {e}")
