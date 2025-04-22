@@ -248,3 +248,26 @@ async def get_meeting_by_id(meeting_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve meeting details: {e}")
+    
+@router.get("/get_meeting_ids_from_user_id/{user_id}")
+async def get_meeting_ids_from_user_id(user_id: str):
+    try:
+        # ค้นหา meeting ทั้งหมดที่สร้างโดย user นี้
+        results = collection_name.find({"user_create_id": user_id})
+        
+        meeting_list = []
+        async for doc in results:
+            meeting_list.append({
+                "id": str(doc["_id"]),
+                "name": doc.get("name", ""),
+                "start_datetime": doc.get("start_datetime"),
+                "end_datetime": doc.get("end_datetime"),
+            })
+
+        if meeting_list:
+            return {"msg": f"Found {len(meeting_list)} meetings", "meetings": meeting_list}
+        else:
+            raise HTTPException(status_code=404, detail="No meetings found for the specified user")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get meetings: {e}")
