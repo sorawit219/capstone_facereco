@@ -10,6 +10,8 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+import base64
+from bson.binary import Binary
 load_dotenv()
 # from typing import Optional
 # from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
@@ -73,13 +75,21 @@ async def create_meeting(place_id: str, meeting: Meeting):
         # Set the place_id from the path parameter
         meeting_dict = meeting.dict()
         meeting_dict["place_id"] = place_id
+        # add this line
+        # Check if meeting with same name already exists
+        existing_meeting = collection_name.find_one({"name": meeting.name})
+        if existing_meeting:
+            raise HTTPException(status_code=400, detail="Meeting with this name already exists")
         
+        # Use meeting name as _id
+        meeting_dict["_id"] = meeting.name
+        # end
         # Insert the meeting document
         result = collection_name.insert_one(meeting_dict)
-        inserted_id = result.inserted_id
-        
+        #  inserted_id = result.inserted_id delete this line
         if result.inserted_id:
-            return {"msg": "Create Meeting Complete", "ID": str(inserted_id)}
+            return {"msg": "Create Meeting Complete", "ID": meeting.name}
+        # str(inserted_id)
         else:
             raise HTTPException(status_code=500, detail="Failed to create meeting")
     except Exception as e:
@@ -183,6 +193,29 @@ async def upload_meeting_picture(meet_id: str, files: List[UploadFile]=File(...)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload pictures: {e}")
 
+# @router.post("/{meet_id}/upload-base64")
+# async def upload_meeting_picture_base64(meet_id: str, image_data: ImageUpload):
+#     try:
+#         collection = db["meeting_picture"]
+        
+#         # Decode base64 string to binary data
+#         picture_contents = base64.b64decode(image_data.image)
+        
+#         # Store in MongoDB
+#         file_data = {
+#             "meeting_id": meet_id,
+#             "filename": image_data.filename,
+#             "image_data": Binary(picture_contents)
+#         }
+        
+#         result = collection.insert_one(file_data)
+#         if result:
+#             return {"msg": "Upload Complete", "id": str(result.inserted_id)}
+#         else:
+#             raise HTTPException(status_code=500, detail="Failed to upload picture")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to upload picture: {e}")
+
 @router.get("/{meet_id}/getImage")
 async def download_meeting_picture(meet_id: str):
     try:
@@ -229,7 +262,8 @@ async def get_meeting_by_id(meeting_id: str):
         
         # Try to convert the meeting_id to ObjectId
         try:
-            obj_id = ObjectId(meeting_id)
+            obj_id = meeting_id
+            # ObjectId(meeting_id)
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid meeting ID format")
         
@@ -248,3 +282,64 @@ async def get_meeting_by_id(meeting_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve meeting details: {e}")
+
+#add by 23/4/25
+# @router.get("/get_meeting_ids_from_user_id/{user_id}")
+# async def get_meeting_ids_from_user_id(user_id: str):
+#     try:
+#         results = collection_name.find({"user_create_id": user_id})
+        
+#         meeting_list = []
+#         for doc in results:  # ใช้ for ธรรมดา
+#             meeting_list.append({
+#                 "id": str(doc["_id"]),
+#                 "name": doc.get("name", ""),
+#                 "start_datetime": serialize_datetime(doc.get("start_datetime")),
+#                 "end_datetime": serialize_datetime(doc.get("end_datetime")),
+#             })
+
+#         if meeting_list:
+#             return {"msg": f"Found {len(meeting_list)} meetings", "meetings": meeting_list}
+#         else:
+#             raise HTTPException(status_code=404, detail="No meetings found for the specified user")
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to get meetings: {str(e)}")
+
+     
+# from fastapi import Query
+ 
+# @router.get("/search_meetings_by_name")
+# async def search_meetings_by_name(
+#      keyword: str = Query(..., min_length=1),
+#      limit: int = Query(10, ge=1, le=100),
+#      skip: int = Query(0, ge=0)
+#  ):
+#      try:
+#          query = {
+#              "name": {
+#                  "$regex": keyword,
+#                  "$options": "i"  # ไม่สน case
+#              }
+#          }
+ 
+#          results = collection_name.find(query).skip(skip).limit(limit)
+ 
+#          meetings = []
+#          async for doc in results:
+#              meetings.append({
+#                  "id": str(doc["_id"]),
+#                  "name": doc.get("name", ""),
+#                  "start_datetime": doc.get("start_datetime"),
+#                  "end_datetime": doc.get("end_datetime"),
+#                  "user_create": doc.get("user_create")
+#              })
+ 
+#          return {
+#              "total_found": len(meetings),
+#              "meetings": meetings
+#          }
+ 
+#      except Exception as e:
+#          raise HTTPException(status_code=500, detail=f"Failed to search meetings: {e}")
+ 

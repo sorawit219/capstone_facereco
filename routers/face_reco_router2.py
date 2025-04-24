@@ -30,6 +30,7 @@ client = MongoClient(os.getenv('MONGODB_URL'))
 db = client[os.getenv('DATABASE_NAME')]
 collection = db[os.getenv('COLLECTION_USER_ENROLLMENT')]
 time_stamp_collection = db[os.getenv('COLLECTION_TIME_STAMP')]  # Use consistent environment variable
+profile_collection = db[os.getenv('COLLECTION_PROFILE')]
 
 # Global variable to track if the camera is running
 buffer = []
@@ -663,6 +664,8 @@ async def face_reco_qr(websocket: WebSocket):
     await websocket.accept()
     print("Face+QR WebSocket Connected!")
     
+    string_hash = None
+    previous_recognized_id = None
     try:
         # Get meeting from query parameters and validate
         meeting = websocket.query_params.get("meeting", "default_meeting")  # Default if not provided
@@ -817,9 +820,10 @@ async def face_reco_qr(websocket: WebSocket):
             # Step 2: If face already detected, focus on QR code scanning
             else:
                 # Process QR code
-                string_hash = None
+               
                 qr_match_id = None
                 decoded_objects = decode(img)
+                result = None
                 
                 if not decoded_objects:
                     await websocket.send_json({
@@ -988,13 +992,16 @@ async def get_timestamps_by_meeting(meeting_id: str,
     - sort_order: Sort order (1 for ascending, -1 for descending)
     
     Returns:
-    - List of timestamp records for the meeting
+    - List of timestamp records for the meeting with user and meeting details
     """
+
     try:
         # Create the filter
         query_filter = {"meeting_id": meeting_id}
+     
         if status is not None:
             query_filter["STATUS"] = status
+          
         
         # Execute the query with sorting and pagination
         cursor = time_stamp_collection.find(query_filter)\
@@ -1006,12 +1013,32 @@ async def get_timestamps_by_meeting(meeting_id: str,
         total_records = time_stamp_collection.count_documents(query_filter)
         
         # Convert MongoDB cursor to a list
+        cursor = time_stamp_collection.aggregate(pipeline)
         records = list(cursor)
+        
+        # # Get meeting details
+        # meeting_collection = db["meeting"]
+        # meeting = meeting_collection.find_one({"_id": meeting_id})
+        # meeting_name = meeting.get("name", "Unknown Meeting") if meeting else "Unknown Meeting"
+        
+        # # Get user details for each record
+        # profiles_collection = db["profiles"]
+        # for record in records:
+        #     user_id = record.get("user_id")
+        #     if user_id:
+        #         user = profiles_collection.find_one({"id": user_id})
+        #         record["user_name"] = user.get("name", "Unknown User") if user else "Unknown User"
+        #     else:
+        #         record["user_name"] = "Unknown User"
+            
+        #     # Add meeting name to each record
+        #     record["meeting_name"] = meeting_name
         
         # Convert ObjectId and datetime to string for JSON serialization
         parsed_records = json.loads(json_util.dumps(records))
         
         # Return the results
+        total_records = time_stamp_collection.count_documents(match_filter)
         return {
             "total": total_records,
             "records": parsed_records,

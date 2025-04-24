@@ -122,6 +122,26 @@ def search_enrollment(id: str):
         # Convert _id to string for the response
         result["_id"] = str(result["_id"])
 
+        # Get user name from profiles collection
+        try:
+            user_profile = db["profiles"].find_one({"id": result["user_id"]})
+            if user_profile:
+                result["user_name"] = user_profile.get("name", "Unknown")
+            else:
+                result["user_name"] = "Unknown"
+        except:
+            result["user_name"] = "Unknown"
+
+        # Get meeting name from meetings collection
+        try:
+            meeting = db["meeting"].find_one({"_id": ObjectId(result["meet_id"])})
+            if meeting:
+                result["meeting_name"] = meeting.get("name", "Unknown")
+            else:
+                result["meeting_name"] = "Unknown"
+        except:
+            result["meeting_name"] = "Unknown"
+
         # Check and decode the QR code data
         if "qrcode" in result:
             qrcode_data = result["qrcode"]
@@ -161,7 +181,8 @@ async def create_enrollment(id: str, meet_id: str, choice: int):  # face+otp =1 
     try:
         # Check if the meeting exists
         collec = db["meeting"]
-        meet_object = ObjectId(meet_id)
+        meet_object = meet_id
+        # ObjectId(meet_id)
         meeting = collec.find_one({"_id": meet_object})
         if meeting:
             # Add the user ID to the list of enrolled users

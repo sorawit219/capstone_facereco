@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 #from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from fastapi import UploadFile,File,HTTPException
+from fastapi import UploadFile,File,HTTPException,Query
 from fastapi.responses import StreamingResponse
 from pymongo import MongoClient
 from gridfs import GridFS
@@ -121,3 +121,51 @@ async def download_place_picture(place_id: str):
     except Exception as e:
         error_msg = str(e)
         raise HTTPException(status_code=500, detail=f"Failed to download images: {error_msg}")
+    
+# @router.get("/id_from_name/{name}")
+# async def get_meeting_id_from_name(name: str):
+#      try:
+#          result = collection_name.find_one({"name": name}, {"_id": 1})
+#          if result:
+#              obj_id = result["_id"]
+#              return {"msg": "Found Meeting!", "ID": str(obj_id)}
+#          else:
+#              raise HTTPException(status_code=404, detail="No meeting found with the specified name")
+#      except Exception as e:
+#          raise HTTPException(status_code=500, detail=f"Failed to get meeting ID: {e}")
+# @router.get("/search_place_by_name")
+# async def search_place_by_name(
+#      keyword: str = Query(..., min_length=1),
+#      limit: int = Query(10, ge=1, le=100),
+#      skip: int = Query(0, ge=0),
+#      sort_order: int = Query(1, ge=-1, le=1)  # 1 = ASC, -1 = DESC
+#  ):
+#      try:
+#          query = {
+#              "name": {
+#                  "$regex": keyword,
+#                  "$options": "i"
+#              }
+#          }
+ 
+#          results = collection_name.find(query)\
+#                                     .sort("name", sort_order)\
+#                                     .skip(skip)\
+#                                     .limit(limit)
+ 
+#          places = []
+#          async for doc in results:
+#              places.append({
+#                  "_id": str(doc["_id"]),
+#                  "place_id": doc.get("place_id"),
+#                  "name": doc.get("name", ""),
+#                  "description": doc.get("description", "")
+#              })
+ 
+#          return {
+#              "total_found": len(places),
+#              "places": places
+#          }
+ 
+#      except Exception as e:
+#          raise HTTPException(status_code=500, detail=f"Failed to search places: {e}")
